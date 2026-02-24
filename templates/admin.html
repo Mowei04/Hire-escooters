@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Admin{% endblock %}
+{% block content %}
+<div class="card-shell p-4 mb-3">
+  <h2 class="h4">Admin Page</h2>
+  <p class="mb-0 text-secondary">Frontend demo page with mock admin API responses.</p>
+</div>
+
+<div class="row g-3">
+  <div class="col-12 col-lg-6">
+    <div class="card-shell p-4 h-100">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h3 class="h5 mb-0">Scooter List</h3>
+        <button id="loadScootersBtn" class="btn btn-sm btn-outline-dark">Refresh</button>
+      </div>
+      <pre id="scootersBox" class="result-box">Waiting for query...</pre>
+    </div>
+  </div>
+  <div class="col-12 col-lg-6">
+    <div class="card-shell p-4 h-100">
+      <h3 class="h5">Weekly Revenue</h3>
+      <div class="mb-3">
+        <input id="weekStart" class="form-control" type="date" />
+      </div>
+      <button id="loadRevenueBtn" class="btn btn-dark w-100">Query Weekly Revenue</button>
+      <pre id="revenueBox" class="result-box mt-3">Waiting for query...</pre>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.getElementById("loadScootersBtn").addEventListener("click", async () => {
+    const box = document.getElementById("scootersBox");
+    box.textContent = "Loading...";
+    const res = await fetch("/api/admin/scooters");
+    const data = await res.json();
+    box.textContent = JSON.stringify({ status: res.status, data }, null, 2);
+  });
+
+  document.getElementById("loadRevenueBtn").addEventListener("click", async () => {
+    const box = document.getElementById("revenueBox");
+    box.textContent = "Loading...";
+    const weekStart = document.getElementById("weekStart").value;
+    const url = weekStart ? `/api/admin/revenue/weekly?week_start=${weekStart}` : "/api/admin/revenue/weekly";
+    const res = await fetch(url);
+    const data = await res.json();
+    box.textContent = JSON.stringify({ status: res.status, data }, null, 2);
+  });
+</script>
+{% endblock %}

@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Customer Register{% endblock %}
+{% block content %}
+<div class="card-shell p-4 p-md-5">
+  <h2 class="h4 mb-3">Customer Registration</h2>
+  <div class="mb-2">
+    <input id="regEmail" class="form-control" type="email" placeholder="email" />
+  </div>
+  <div class="mb-3">
+    <input id="regPassword" class="form-control" type="password" placeholder="password" />
+  </div>
+  <div class="d-flex gap-2">
+    <button id="registerBtn" class="btn btn-success">Register</button>
+    <a class="btn btn-outline-primary" href="/customer/login">Already have an account? Login</a>
+  </div>
+</div>
+
+<pre id="registerResult" class="result-box mt-3">Waiting for action...</pre>
+
+<script>
+  document.getElementById("registerBtn").addEventListener("click", async () => {
+    const email = document.getElementById("regEmail").value;
+    const password = document.getElementById("regPassword").value;
+    const box = document.getElementById("registerResult");
+    box.textContent = "Loading...";
+
+    const res = await fetch("/api/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json();
+    box.textContent = JSON.stringify({ status: res.status, data }, null, 2);
+  });
+</script>
+{% endblock %}

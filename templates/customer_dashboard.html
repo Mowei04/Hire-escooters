@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Customer Dashboard{% endblock %}
+{% block content %}
+<div class="card-shell p-4 mb-3">
+  <h2 class="h4">Customer Dashboard</h2>
+  <p class="mb-0 text-secondary">Frontend demo page with mock API calls.</p>
+</div>
+
+<div class="row g-3">
+  <div class="col-12 col-lg-6">
+    <div class="card-shell p-4 h-100">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h3 class="h5 mb-0">Pricing Plans</h3>
+        <button id="loadPricingBtn" class="btn btn-sm btn-outline-primary">Refresh</button>
+      </div>
+      <pre id="pricingBox" class="result-box">Click Refresh to load pricing.</pre>
+    </div>
+  </div>
+  <div class="col-12 col-lg-6">
+    <div class="card-shell p-4 h-100">
+      <h3 class="h5">Create Booking</h3>
+      <div class="mb-2">
+        <input id="scooterId" class="form-control" type="number" min="1" placeholder="scooter_id" />
+      </div>
+      <div class="mb-3">
+        <select id="planType" class="form-select">
+          <option value="1h">1h</option>
+          <option value="4h">4h</option>
+          <option value="1d">1d</option>
+          <option value="1w">1w</option>
+        </select>
+      </div>
+      <button id="createBookingBtn" class="btn btn-success w-100">Create Booking</button>
+      <pre id="bookingBox" class="result-box mt-3">Waiting for booking...</pre>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.getElementById("loadPricingBtn").addEventListener("click", async () => {
+    const box = document.getElementById("pricingBox");
+    box.textContent = "Loading...";
+    const res = await fetch("/api/customer/pricing");
+    const data = await res.json();
+    box.textContent = JSON.stringify({ status: res.status, data }, null, 2);
+  });
+
+  document.getElementById("createBookingBtn").addEventListener("click", async () => {
+    const box = document.getElementById("bookingBox");
+    box.textContent = "Loading...";
+    const scooter_id = Number(document.getElementById("scooterId").value);
+    const plan_type = document.getElementById("planType").value;
+    const res = await fetch("/api/customer/bookings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scooter_id, plan_type }),
+    });
+    const data = await res.json();
+    box.textContent = JSON.stringify({ status: res.status, data }, null, 2);
+  });
+</script>
+{% endblock %}

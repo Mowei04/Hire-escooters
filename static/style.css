@@ -1,10 +1,21 @@
 body {
-  background: linear-gradient(120deg, #f8fafc, #e2f8f0);
+  background: linear-gradient(120deg, #f8fafc, #e6f8f1);
   min-height: 100vh;
 }
 
-.hero-card {
-  background: #ffffff;
-  border-radius: 18px;
-  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
+.card-shell {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
+.result-box {
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 12px;
+  padding: 12px;
+  min-height: 110px;
+  margin: 0;
+  font-size: 13px;
+  overflow-x: auto;
 }

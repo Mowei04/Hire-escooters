@@ -5,4 +5,5 @@ __pycache__/
 .pytest_cache/
 .venv/
 backend/.venv/
+scooter_mvp.db
 backend/scooter_mvp.db

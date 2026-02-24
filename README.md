@@ -1,33 +1,31 @@
-# Hire e-scooters MVP (Flask)
+# Hire e-scooters MVP (Frontend-first Scaffold)
 
 ## Stack
-- Backend: Flask
-- DB: SQLite
+- Backend framework: Flask (mock API mode)
+- DB: SQLite (not used in current frontend-only phase)
 - Frontend: Jinja2 templates + HTML/CSS + Bootstrap
 
 ## Run locally
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+=======
+cd "/Users/mowei/Software_Engineering/Hire-escooters"
+python -m pip install -r requirements.txt
+>>>>>>> 68546a8 (build up the basic frontend)
 python server.py
 ```
 
-Open:
-- Home page: http://127.0.0.1:8000/
-- Health API: http://127.0.0.1:8000/api/health
+## Pages
+- Home: `http://127.0.0.1:8000/`
+- Register: `http://127.0.0.1:8000/customer/register`
+- Login: `http://127.0.0.1:8000/customer/login`
+- Customer dashboard: `http://127.0.0.1:8000/customer/dashboard`
+- Admin page: `http://127.0.0.1:8000/admin`
 
-## Current endpoints
-- `GET /api/health`
-- `POST /api/auth/register`
-- `POST /api/auth/login` (placeholder)
-- `GET /api/customer/pricing` (placeholder)
-- `POST /api/customer/bookings` (placeholder)
-- `GET /api/admin/scooters` (placeholder)
-- `GET /api/admin/revenue/weekly` (placeholder)
+## API mode
+Current APIs return mock data so frontend pages can be developed and demoed now.
 
 ## Test
 ```bash
-cd backend
-pytest -q
+cd "/Users/mowei/Software_Engineering/Hire-escooters"
+python -m pytest -q
 ```
