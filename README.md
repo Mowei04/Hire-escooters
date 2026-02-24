@@ -7,10 +7,8 @@
 
 ## Run locally
 ```bash
-=======
 cd "/Users/mowei/Software_Engineering/Hire-escooters"
 python -m pip install -r requirements.txt
->>>>>>> 68546a8 (build up the basic frontend)
 python server.py
 ```
 
