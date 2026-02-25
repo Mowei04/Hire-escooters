@@ -12,12 +12,30 @@
       <div class="container">
         <a class="navbar-brand fw-semibold" href="/">Hire e-scooters</a>
         <div class="d-flex flex-wrap gap-2">
-          <a class="btn btn-sm btn-outline-success" href="/customer/register">Register</a>
-          <a class="btn btn-sm btn-outline-primary" href="/customer/login">Login</a>
-          <a class="btn btn-sm btn-outline-dark" href="/admin">Admin</a>
+          {% if current_user %}
+            {% if current_user["role"] == "admin" %}
+              <a class="btn btn-sm btn-outline-dark" href="/admin">Admin</a>
+            {% else %}
+              <a class="btn btn-sm btn-outline-primary" href="/customer/dashboard">Dashboard</a>
+            {% endif %}
+            <span class="btn btn-sm btn-light disabled">{{ current_user["username"] }}</span>
+            <button id="navLogoutBtn" class="btn btn-sm btn-outline-danger" type="button">Logout</button>
+          {% else %}
+            <a class="btn btn-sm btn-outline-success" href="/customer/register">Register</a>
+            <a class="btn btn-sm btn-outline-primary" href="/customer/login">Login</a>
+          {% endif %}
         </div>
       </div>
     </nav>
     <main class="container py-4">{% block content %}{% endblock %}</main>
+    <script>
+      const navLogoutBtn = document.getElementById("navLogoutBtn");
+      if (navLogoutBtn) {
+        navLogoutBtn.addEventListener("click", async () => {
+          await fetch("/api/auth/logout", { method: "POST" });
+          window.location.href = "/customer/login";
+        });
+      }
+    </script>
   </body>
 </html>

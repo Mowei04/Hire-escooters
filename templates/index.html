@@ -6,26 +6,40 @@
   <p class="text-secondary mb-0">The homepage is split into customer and admin entries, with integrated auth, booking, and management APIs.</p>
 </div>
 
-<div class="row g-3 mb-3">
-  <div class="col-12 col-lg-6">
-    <div class="card-shell p-4 h-100">
-      <h2 class="h5">Customer Side</h2>
-      <p class="text-secondary">After register/login, users can view pricing, create bookings, and view/cancel their bookings.</p>
-      <div class="d-flex flex-wrap gap-2">
-        <a class="btn btn-success" href="/customer/register">Register</a>
-        <a class="btn btn-primary" href="/customer/login">Login</a>
-        <a class="btn btn-outline-primary" href="/customer/dashboard">Customer Dashboard</a>
+{% if not current_user %}
+  <div class="row g-3 mb-3">
+    <div class="col-12 col-lg-6">
+      <div class="card-shell p-4 h-100">
+        <h2 class="h5">Customer Side</h2>
+        <p class="text-secondary">After register/login, users can view pricing, create bookings, and view/cancel their bookings.</p>
+        <div class="d-flex flex-wrap gap-2">
+          <a class="btn btn-success" href="/customer/register">Register</a>
+          <a class="btn btn-primary" href="/customer/login">Login</a>
+          <a class="btn btn-outline-primary" href="/customer/dashboard">Customer Dashboard</a>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-lg-6">
+      <div class="card-shell p-4 h-100">
+        <h2 class="h5">Admin Side</h2>
+        <p class="text-secondary">After admin login, scooter status can be maintained and weekly revenue can be reviewed.</p>
+        <a class="btn btn-dark" href="/admin">Admin Page</a>
       </div>
     </div>
   </div>
-  <div class="col-12 col-lg-6">
-    <div class="card-shell p-4 h-100">
-      <h2 class="h5">Admin Side</h2>
-      <p class="text-secondary">After admin login, scooter status can be maintained and weekly revenue can be reviewed.</p>
-      <a class="btn btn-dark" href="/admin">Admin Page</a>
-    </div>
+{% elif current_user["role"] == "admin" %}
+  <div class="card-shell p-4 mb-3">
+    <h2 class="h5">Admin Side</h2>
+    <p class="text-secondary">You are signed in as admin. Manage scooter status and review weekly revenue.</p>
+    <a class="btn btn-dark" href="/admin">Go to Admin Page</a>
   </div>
-</div>
+{% else %}
+  <div class="card-shell p-4 mb-3">
+    <h2 class="h5">Customer Side</h2>
+    <p class="text-secondary">You are signed in as customer. Continue with pricing, booking, and order management.</p>
+    <a class="btn btn-primary" href="/customer/dashboard">Go to Customer Dashboard</a>
+  </div>
+{% endif %}
 
 <div class="card-shell p-4">
   <button id="healthBtn" class="btn btn-outline-secondary">Check Service Health</button>

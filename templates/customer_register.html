@@ -4,6 +4,9 @@
 <div class="card-shell p-4 p-md-5">
   <h2 class="h4 mb-3">Customer Registration</h2>
   <div class="mb-2">
+    <input id="regUsername" class="form-control" type="text" placeholder="username" />
+  </div>
+  <div class="mb-2">
     <input id="regEmail" class="form-control" type="email" placeholder="email" />
   </div>
   <div class="mb-3">
@@ -19,6 +22,7 @@
 
 <script>
   document.getElementById("registerBtn").addEventListener("click", async () => {
+    const username = document.getElementById("regUsername").value;
     const email = document.getElementById("regEmail").value;
     const password = document.getElementById("regPassword").value;
     const box = document.getElementById("registerResult");
@@ -27,7 +31,7 @@
     const res = await fetch("/api/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ username, email, password }),
     });
     const data = await res.json();
     box.textContent = JSON.stringify({ status: res.status, data }, null, 2);

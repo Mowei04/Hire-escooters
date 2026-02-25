@@ -34,6 +34,20 @@ def api_error(status_code: int, code: str, message: str):
     return jsonify({"error": {"code": code, "message": message}}), status_code
 
 
+def normalize_username(value: str) -> str:
+    return value.strip().lower()
+
+
+def ensure_unique_username(base: str, used: set[str]) -> str:
+    candidate = base or "user"
+    suffix = 1
+    while candidate in used:
+        suffix += 1
+        candidate = f"{base or 'user'}{suffix}"
+    used.add(candidate)
+    return candidate
+
+
 def init_db() -> None:
     conn = get_db()
     cur = conn.cursor()
@@ -42,6 +56,7 @@ def init_db() -> None:
         """
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT,
             email TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
             role TEXT NOT NULL DEFAULT 'customer'
@@ -81,6 +96,24 @@ def init_db() -> None:
     if "location_text" not in scooter_columns:
         cur.execute("ALTER TABLE scooters ADD COLUMN location_text TEXT NOT NULL DEFAULT ''")
 
+    user_columns = {row["name"] for row in cur.execute("PRAGMA table_info(users)").fetchall()}
+    if "username" not in user_columns:
+        cur.execute("ALTER TABLE users ADD COLUMN username TEXT")
+
+    # Normalize and backfill usernames for existing rows before adding unique index.
+    users = cur.execute("SELECT id, username, email FROM users ORDER BY id").fetchall()
+    used_usernames: set[str] = set()
+    for row in users:
+        current = normalize_username(row["username"] or "")
+        email_base = normalize_username((row["email"] or "").split("@")[0])
+        base = current or email_base or f"user{row['id']}"
+        username = ensure_unique_username(base, used_usernames)
+        if username != (row["username"] or ""):
+            cur.execute("UPDATE users SET username = ? WHERE id = ?", (username, row["id"]))
+
+    cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique ON users(email)")
+    cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_unique ON users(username)")
+
     cur.execute("SELECT COUNT(*) AS count FROM scooters")
     if cur.fetchone()["count"] == 0:
         cur.executemany(
@@ -93,12 +126,12 @@ def init_db() -> None:
         )
 
     cur.execute(
-        "INSERT OR IGNORE INTO users (email, password_hash, role) VALUES (?, ?, ?)",
-        ("manager@example.com", "plain::admin123", "admin"),
+        "INSERT OR IGNORE INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)",
+        ("manager", "manager@example.com", "plain::admin123", "admin"),
     )
     cur.execute(
-        "INSERT OR IGNORE INTO users (email, password_hash, role) VALUES (?, ?, ?)",
-        ("demo_user@example.com", "plain::123456", "customer"),
+        "INSERT OR IGNORE INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)",
+        ("demo_user", "demo_user@example.com", "plain::123456", "customer"),
     )
 
     conn.commit()
@@ -112,7 +145,7 @@ def get_current_user() -> sqlite3.Row | None:
 
     conn = get_db()
     try:
-        user = conn.execute("SELECT id, email, role FROM users WHERE id = ?", (user_id,)).fetchone()
+        user = conn.execute("SELECT id, username, email, role FROM users WHERE id = ?", (user_id,)).fetchone()
     finally:
         conn.close()
     return user
@@ -139,6 +172,17 @@ def to_money(value: Decimal) -> str:
     return f"{value.quantize(Decimal('0.01'))}"
 
 
+def redirect_after_login(user: sqlite3.Row):
+    if user["role"] == "admin":
+        return redirect(url_for("admin_page"))
+    return redirect(url_for("customer_dashboard_page"))
+
+
+@app.context_processor
+def inject_current_user():
+    return {"current_user": get_current_user()}
+
+
 @app.get("/")
 def home():
     return render_template("index.html")
@@ -146,16 +190,25 @@ def home():
 
 @app.get("/customer")
 def customer_home():
+    user = get_current_user()
+    if user:
+        return redirect_after_login(user)
     return render_template("customer_login.html")
 
 
 @app.get("/customer/register")
 def customer_register_page():
+    user = get_current_user()
+    if user:
+        return redirect_after_login(user)
     return render_template("customer_register.html")
 
 
 @app.get("/customer/login")
 def customer_login_page():
+    user = get_current_user()
+    if user:
+        return redirect_after_login(user)
     return render_template("customer_login.html")
 
 
@@ -187,21 +240,30 @@ def health_check():
 @app.post("/api/auth/register")
 def register_user():
     payload = request.get_json(silent=True) or {}
+    username = normalize_username(payload.get("username") or "")
     email = (payload.get("email") or "").strip().lower()
     password = payload.get("password") or ""
 
-    if not email or not password:
-        return jsonify({"message": "email and password are required"}), 400
+    if not username or not email or not password:
+        return jsonify({"message": "username, email and password are required"}), 400
 
     conn = get_db()
     try:
+        email_exists = conn.execute("SELECT 1 FROM users WHERE email = ?", (email,)).fetchone()
+        if email_exists:
+            return jsonify({"message": "Email already exists"}), 409
+
+        username_exists = conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone()
+        if username_exists:
+            return jsonify({"message": "Username already exists"}), 409
+
         conn.execute(
-            "INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)",
-            (email, f"plain::{password}", "customer"),
+            "INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)",
+            (username, email, f"plain::{password}", "customer"),
         )
         conn.commit()
     except sqlite3.IntegrityError:
-        return jsonify({"message": "Email already exists"}), 409
+        return jsonify({"message": "Username or email already exists"}), 409
     finally:
         conn.close()
 
@@ -220,7 +282,7 @@ def login_user():
     conn = get_db()
     try:
         user = conn.execute(
-            "SELECT id, email, role FROM users WHERE email = ? AND password_hash = ?",
+            "SELECT id, username, email, role FROM users WHERE email = ? AND password_hash = ?",
             (email, f"plain::{password}"),
         ).fetchone()
     finally:
