@@ -1,16 +1,35 @@
 {% extends "base.html" %}
 {% block title %}Home - Hire e-scooters{% endblock %}
 {% block content %}
-<div class="card-shell p-4 p-md-5">
-  <h1 class="mb-3">MVP Frontend Scaffold</h1>
-  <p class="text-secondary">This build is focused on frontend pages. API responses are currently mock data for integration demo only.</p>
-  <div class="d-flex flex-wrap gap-2 mb-3">
-    <a class="btn btn-success" href="/customer/register">Go to Register</a>
-    <a class="btn btn-primary" href="/customer/login">Go to Login</a>
-    <a class="btn btn-dark" href="/admin">Go to Admin</a>
-    <button id="healthBtn" class="btn btn-outline-secondary">Check Service Health</button>
+<div class="card-shell p-4 p-md-5 mb-3">
+  <h1 class="mb-3">Hire e-scooters MVP</h1>
+  <p class="text-secondary mb-0">The homepage is split into customer and admin entries, with integrated auth, booking, and management APIs.</p>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-12 col-lg-6">
+    <div class="card-shell p-4 h-100">
+      <h2 class="h5">Customer Side</h2>
+      <p class="text-secondary">After register/login, users can view pricing, create bookings, and view/cancel their bookings.</p>
+      <div class="d-flex flex-wrap gap-2">
+        <a class="btn btn-success" href="/customer/register">Register</a>
+        <a class="btn btn-primary" href="/customer/login">Login</a>
+        <a class="btn btn-outline-primary" href="/customer/dashboard">Customer Dashboard</a>
+      </div>
+    </div>
   </div>
-  <pre id="healthBox" class="result-box">Click "Check Service Health" to call /api/health.</pre>
+  <div class="col-12 col-lg-6">
+    <div class="card-shell p-4 h-100">
+      <h2 class="h5">Admin Side</h2>
+      <p class="text-secondary">After admin login, scooter status can be maintained and weekly revenue can be reviewed.</p>
+      <a class="btn btn-dark" href="/admin">Admin Page</a>
+    </div>
+  </div>
+</div>
+
+<div class="card-shell p-4">
+  <button id="healthBtn" class="btn btn-outline-secondary">Check Service Health</button>
+  <pre id="healthBox" class="result-box mt-3">Click to call /api/health.</pre>
 </div>
 
 <script>
@@ -20,7 +39,7 @@
     try {
       const res = await fetch("/api/health");
       const data = await res.json();
-      box.textContent = JSON.stringify(data, null, 2);
+      box.textContent = JSON.stringify({ status: res.status, data }, null, 2);
     } catch (e) {
       box.textContent = `Request failed: ${e}`;
     }

@@ -1,49 +1,67 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import date, datetime, timedelta
+from decimal import Decimal
+from functools import wraps
 from pathlib import Path
-from flask import Flask, jsonify, render_template, request
 
-# Project structure setup
+from flask import Flask, g, jsonify, redirect, render_template, request, session, url_for
+
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "scooter_mvp.db"
 
 app = Flask(__name__)
+app.config["SECRET_KEY"] = "hire-escooters-dev-secret"
 
-# Member B: Pricing Plans Definition (as per api.md contract)
 PLANS = {
     "1h": {"duration_minutes": 60, "price": "2.99"},
     "4h": {"duration_minutes": 240, "price": "8.99"},
     "1d": {"duration_minutes": 1440, "price": "19.99"},
-    "1w": {"duration_minutes": 10080, "price": "79.99"}
+    "1w": {"duration_minutes": 10080, "price": "79.99"},
 }
 
-def init_db() -> None:
-    """Initialize database tables for all team members."""
+ALLOWED_SCOOTER_STATUS = {"available", "in_use", "maintenance"}
+
+
+def get_db() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def api_error(status_code: int, code: str, message: str):
+    return jsonify({"error": {"code": code, "message": message}}), status_code
+
+
+def init_db() -> None:
+    conn = get_db()
     cur = conn.cursor()
-    
-    # Member A: User accounts table
-    cur.execute("""
+
+    cur.execute(
+        """
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
             role TEXT NOT NULL DEFAULT 'customer'
         )
-    """)
-    
-    # Member B/C: Scooter inventory table
-    cur.execute("""
+        """
+    )
+
+    cur.execute(
+        """
         CREATE TABLE IF NOT EXISTS scooters (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             code TEXT UNIQUE NOT NULL,
-            status TEXT NOT NULL DEFAULT 'available' -- available, in_use, maintenance
+            status TEXT NOT NULL DEFAULT 'available',
+            location_text TEXT NOT NULL DEFAULT ''
         )
-    """)
-    
-    # Member B: Bookings table (matching API contract fields)
-    cur.execute("""
+        """
+    )
+
+    cur.execute(
+        """
         CREATE TABLE IF NOT EXISTS bookings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
@@ -55,29 +73,116 @@ def init_db() -> None:
             FOREIGN KEY (user_id) REFERENCES users (id),
             FOREIGN KEY (scooter_id) REFERENCES scooters (id)
         )
-    """)
-    
-    # Seed data: Insert default scooters if table is empty
-    cur.execute("SELECT COUNT(*) FROM scooters")
-    if cur.fetchone()[0] == 0:
-        cur.executemany("INSERT INTO scooters (code, status) VALUES (?, ?)", 
-                       [("SC-001", "available"), ("SC-002", "available")])
-        
+        """
+    )
+
+    # Lightweight migration for old DB files.
+    scooter_columns = {row["name"] for row in cur.execute("PRAGMA table_info(scooters)").fetchall()}
+    if "location_text" not in scooter_columns:
+        cur.execute("ALTER TABLE scooters ADD COLUMN location_text TEXT NOT NULL DEFAULT ''")
+
+    cur.execute("SELECT COUNT(*) AS count FROM scooters")
+    if cur.fetchone()["count"] == 0:
+        cur.executemany(
+            "INSERT INTO scooters (code, status, location_text) VALUES (?, ?, ?)",
+            [
+                ("SC-001", "available", "City Center A"),
+                ("SC-002", "available", "City Center B"),
+                ("SC-003", "maintenance", "North Station"),
+            ],
+        )
+
+    cur.execute(
+        "INSERT OR IGNORE INTO users (email, password_hash, role) VALUES (?, ?, ?)",
+        ("manager@example.com", "plain::admin123", "admin"),
+    )
+    cur.execute(
+        "INSERT OR IGNORE INTO users (email, password_hash, role) VALUES (?, ?, ?)",
+        ("demo_user@example.com", "plain::123456", "customer"),
+    )
+
     conn.commit()
     conn.close()
 
-# --- ROUTES ---
+
+def get_current_user() -> sqlite3.Row | None:
+    user_id = session.get("user_id")
+    if not user_id:
+        return None
+
+    conn = get_db()
+    try:
+        user = conn.execute("SELECT id, email, role FROM users WHERE id = ?", (user_id,)).fetchone()
+    finally:
+        conn.close()
+    return user
+
+
+def require_role(role: str | None = None):
+    def decorator(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            user = get_current_user()
+            if not user:
+                return api_error(401, "UNAUTHORIZED", "Login required")
+            if role and user["role"] != role:
+                return api_error(403, "FORBIDDEN", "Insufficient permissions")
+            g.current_user = user
+            return fn(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
+def to_money(value: Decimal) -> str:
+    return f"{value.quantize(Decimal('0.01'))}"
+
 
 @app.get("/")
 def home():
     return render_template("index.html")
 
+
+@app.get("/customer")
+def customer_home():
+    return render_template("customer_login.html")
+
+
+@app.get("/customer/register")
+def customer_register_page():
+    return render_template("customer_register.html")
+
+
+@app.get("/customer/login")
+def customer_login_page():
+    return render_template("customer_login.html")
+
+
+@app.get("/customer/dashboard")
+def customer_dashboard_page():
+    user = get_current_user()
+    if not user:
+        return redirect(url_for("customer_login_page"))
+    if user["role"] != "customer":
+        return redirect(url_for("admin_page"))
+    return render_template("customer_dashboard.html")
+
+
+@app.get("/admin")
+def admin_page():
+    user = get_current_user()
+    if not user:
+        return redirect(url_for("customer_login_page"))
+    if user["role"] != "admin":
+        return redirect(url_for("customer_dashboard_page"))
+    return render_template("admin.html")
+
+
 @app.get("/api/health")
 def health_check():
-    """Service health check (Member D / General)."""
     return jsonify({"status": "ok", "framework": "flask"})
 
-# --- AUTH ENDPOINTS (Member A) ---
 
 @app.post("/api/auth/register")
 def register_user():
@@ -88,10 +193,9 @@ def register_user():
     if not email or not password:
         return jsonify({"message": "email and password are required"}), 400
 
+    conn = get_db()
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        cur.execute(
+        conn.execute(
             "INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)",
             (email, f"plain::{password}", "customer"),
         )
@@ -103,92 +207,256 @@ def register_user():
 
     return jsonify({"message": "User registered"}), 201
 
+
 @app.post("/api/auth/login")
 def login_user():
-    # Placeholder for Member A
-    return jsonify({"message": "Login endpoint placeholder"})
+    payload = request.get_json(silent=True) or {}
+    email = (payload.get("email") or "").strip().lower()
+    password = payload.get("password") or ""
 
-# --- CUSTOMER ENDPOINTS (Member B - YOUR TASK) ---
+    if not email or not password:
+        return jsonify({"message": "email and password are required"}), 400
+
+    conn = get_db()
+    try:
+        user = conn.execute(
+            "SELECT id, email, role FROM users WHERE email = ? AND password_hash = ?",
+            (email, f"plain::{password}"),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if not user:
+        return api_error(401, "INVALID_CREDENTIALS", "Invalid email or password")
+
+    session.clear()
+    session["user_id"] = user["id"]
+
+    return jsonify({"message": "Login success", "user": dict(user)})
+
+
+@app.post("/api/auth/logout")
+@require_role()
+def logout_user():
+    session.clear()
+    return jsonify({"message": "Logged out"})
+
+
+@app.get("/api/auth/me")
+@require_role()
+def whoami():
+    return jsonify({"user": dict(g.current_user)})
+
 
 @app.get("/api/customer/pricing")
+@require_role("customer")
 def get_pricing():
-    """Return available hire plans defined in the API contract."""
     plans_list = [{"plan_type": k, **v} for k, v in PLANS.items()]
     return jsonify({"plans": plans_list})
 
+
 @app.post("/api/customer/bookings")
+@require_role("customer")
 def create_booking():
-    """Create a new booking for a scooter based on a selected plan."""
     payload = request.get_json(silent=True) or {}
     scooter_id = payload.get("scooter_id")
     plan_type = payload.get("plan_type")
 
-    # Validation
-    if not scooter_id or plan_type not in PLANS:
-        return jsonify({
-            "error": {"code": "VALIDATION_ERROR", "message": "Invalid scooter_id or plan_type"}
-        }), 400
+    if not isinstance(scooter_id, int) or plan_type not in PLANS:
+        return api_error(400, "VALIDATION_ERROR", "Invalid scooter_id or plan_type")
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db()
     cur = conn.cursor()
-    
     try:
-        # Check if scooter exists and is available
-        cur.execute("SELECT status FROM scooters WHERE id = ?", (scooter_id,))
-        row = cur.fetchone()
-        
-        if not row:
-            return jsonify({
-                "error": {"code": "SCOOTER_NOT_FOUND", "message": "Scooter does not exist"}
-            }), 404
-        
-        if row[0] != 'available':
-            return jsonify({
-                "error": {"code": "SCOOTER_UNAVAILABLE", "message": "Scooter is not available"}
-            }), 409
+        scooter = cur.execute("SELECT id, status FROM scooters WHERE id = ?", (scooter_id,)).fetchone()
+        if not scooter:
+            return api_error(404, "SCOOTER_NOT_FOUND", "Scooter does not exist")
+        if scooter["status"] != "available":
+            return api_error(409, "SCOOTER_UNAVAILABLE", "Scooter is not available")
 
-        # Dummy user_id (to be updated once Member A completes Auth integration)
-        user_id = 1 
         cost = PLANS[plan_type]["price"]
-
-        # Transaction: Create booking and update scooter status
         cur.execute(
             "INSERT INTO bookings (user_id, scooter_id, plan_type, total_cost, status) VALUES (?, ?, ?, ?, ?)",
-            (user_id, scooter_id, plan_type, cost, 'PENDING_PAYMENT')
+            (g.current_user["id"], scooter_id, plan_type, cost, "PENDING_PAYMENT"),
         )
         booking_id = cur.lastrowid
-        
         cur.execute("UPDATE scooters SET status = 'in_use' WHERE id = ?", (scooter_id,))
-        
         conn.commit()
-        
-        return jsonify({
-            "booking": {
-                "id": booking_id,
-                "user_id": user_id,
-                "scooter_id": scooter_id,
-                "plan_type": plan_type,
-                "status": "PENDING_PAYMENT",
-                "total_cost": cost
+
+        return jsonify(
+            {
+                "booking": {
+                    "id": booking_id,
+                    "user_id": g.current_user["id"],
+                    "scooter_id": scooter_id,
+                    "plan_type": plan_type,
+                    "status": "PENDING_PAYMENT",
+                    "total_cost": cost,
+                }
             }
-        }), 201
-        
-    except Exception as e:
+        ), 201
+    except Exception:
         conn.rollback()
-        return jsonify({"error": {"code": "SERVER_ERROR", "message": str(e)}}), 500
+        raise
     finally:
         conn.close()
 
-# --- ADMIN ENDPOINTS (Member C) ---
+
+@app.get("/api/customer/bookings")
+@require_role("customer")
+def list_bookings():
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            """
+            SELECT id, user_id, scooter_id, plan_type, total_cost, status, created_at
+            FROM bookings
+            WHERE user_id = ?
+            ORDER BY id DESC
+            """,
+            (g.current_user["id"],),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    return jsonify({"items": [dict(row) for row in rows]})
+
+
+@app.delete("/api/customer/bookings/<int:booking_id>")
+@require_role("customer")
+def cancel_booking(booking_id: int):
+    conn = get_db()
+    cur = conn.cursor()
+
+    booking = cur.execute(
+        "SELECT id, user_id, scooter_id, status FROM bookings WHERE id = ?",
+        (booking_id,),
+    ).fetchone()
+
+    if not booking:
+        conn.close()
+        return api_error(404, "BOOKING_NOT_FOUND", "Booking does not exist")
+
+    if booking["user_id"] != g.current_user["id"]:
+        conn.close()
+        return api_error(403, "FORBIDDEN", "Cannot cancel another user's booking")
+
+    if booking["status"] == "CANCELLED":
+        conn.close()
+        return api_error(409, "BOOKING_ALREADY_CANCELLED", "Booking already cancelled")
+
+    try:
+        cur.execute("UPDATE bookings SET status = 'CANCELLED' WHERE id = ?", (booking_id,))
+        cur.execute("UPDATE scooters SET status = 'available' WHERE id = ?", (booking["scooter_id"],))
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify({"message": "Booking cancelled", "booking_id": booking_id})
+
 
 @app.get("/api/admin/scooters")
+@require_role("admin")
 def list_scooters_admin():
-    return jsonify({"message": "Admin scooters endpoint placeholder"})
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT id, code, status, location_text FROM scooters ORDER BY id"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    return jsonify({"items": [dict(row) for row in rows]})
+
+
+@app.patch("/api/admin/scooters/<int:scooter_id>")
+@require_role("admin")
+def update_scooter_admin(scooter_id: int):
+    payload = request.get_json(silent=True) or {}
+    updates: list[str] = []
+    values: list[str] = []
+
+    if "status" in payload:
+        status = payload["status"]
+        if status not in ALLOWED_SCOOTER_STATUS:
+            return api_error(400, "VALIDATION_ERROR", "Invalid scooter status")
+        updates.append("status = ?")
+        values.append(status)
+
+    if "location_text" in payload:
+        location_text = str(payload["location_text"] or "").strip()
+        updates.append("location_text = ?")
+        values.append(location_text)
+
+    if not updates:
+        return api_error(400, "VALIDATION_ERROR", "No valid fields to update")
+
+    values.append(str(scooter_id))
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(f"UPDATE scooters SET {', '.join(updates)} WHERE id = ?", values)
+    if cur.rowcount == 0:
+        conn.close()
+        return api_error(404, "SCOOTER_NOT_FOUND", "Scooter does not exist")
+
+    conn.commit()
+    row = cur.execute("SELECT id, code, status, location_text FROM scooters WHERE id = ?", (scooter_id,)).fetchone()
+    conn.close()
+
+    return jsonify({"item": dict(row)})
+
 
 @app.get("/api/admin/revenue/weekly")
+@require_role("admin")
 def weekly_revenue():
-    return jsonify({"message": "Weekly revenue endpoint placeholder"})
+    week_start_raw = request.args.get("week_start", "").strip()
+    if week_start_raw:
+        try:
+            week_start = datetime.strptime(week_start_raw, "%Y-%m-%d").date()
+        except ValueError:
+            return api_error(400, "VALIDATION_ERROR", "week_start must be YYYY-MM-DD")
+    else:
+        today = date.today()
+        week_start = today - timedelta(days=today.weekday())
+
+    week_end = week_start + timedelta(days=6)
+
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            """
+            SELECT plan_type, COALESCE(SUM(CAST(total_cost AS REAL)), 0) AS revenue
+            FROM bookings
+            WHERE DATE(created_at) BETWEEN ? AND ?
+              AND status != 'CANCELLED'
+            GROUP BY plan_type
+            """,
+            (week_start.isoformat(), week_end.isoformat()),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    revenue_by_plan = {row["plan_type"]: Decimal(str(row["revenue"])) for row in rows}
+    by_plan = []
+    total = Decimal("0")
+
+    for plan_type in PLANS.keys():
+        amount = revenue_by_plan.get(plan_type, Decimal("0"))
+        total += amount
+        by_plan.append({"plan_type": plan_type, "revenue": to_money(amount)})
+
+    return jsonify(
+        {
+            "week_start": week_start.isoformat(),
+            "week_end": week_end.isoformat(),
+            "total_revenue": to_money(total),
+            "by_plan": by_plan,
+        }
+    )
+
+
+init_db()
 
 if __name__ == "__main__":
-    init_db()
     app.run(host="127.0.0.1", port=8000, debug=True)

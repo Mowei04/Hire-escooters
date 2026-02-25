@@ -13,7 +13,8 @@
     <button id="loginBtn" class="btn btn-primary">Login</button>
     <a class="btn btn-outline-success" href="/customer/register">Create account</a>
   </div>
-  <p class="small text-secondary mt-3 mb-0">Mock manager email example: manager@example.com</p>
+  <p class="small text-secondary mt-3 mb-0">Admin demo: manager@example.com / admin123</p>
+  <p class="small text-secondary mb-0">Customer demo: demo_user@example.com / 123456</p>
 </div>
 
 <pre id="loginResult" class="result-box mt-3">Waiting for action...</pre>
@@ -34,7 +35,7 @@
     box.textContent = JSON.stringify({ status: res.status, data }, null, 2);
 
     if (res.ok) {
-      if (data.user && data.user.role === "manager") {
+      if (data.user && data.user.role === "admin") {
         window.location.href = "/admin";
       } else {
         window.location.href = "/customer/dashboard";
