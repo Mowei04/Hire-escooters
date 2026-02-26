@@ -43,19 +43,21 @@
 
 <div class="card-shell p-4">
   <button id="healthBtn" class="btn btn-outline-secondary">Check Service Health</button>
-  <pre id="healthBox" class="result-box mt-3">Click to call /api/health.</pre>
+  <div id="healthBox" class="alert alert-light border mt-3 mb-0">Click to call <code>/api/health</code>.</div>
 </div>
 
 <script>
   document.getElementById("healthBtn").addEventListener("click", async () => {
     const box = document.getElementById("healthBox");
+    box.className = "alert alert-info mt-3 mb-0";
     box.textContent = "Loading...";
     try {
-      const res = await fetch("/api/health");
-      const data = await res.json();
-      box.textContent = JSON.stringify({ status: res.status, data }, null, 2);
+      const data = await apiRequest("/api/health", { suppress401Redirect: true });
+      box.className = "alert alert-success mt-3 mb-0";
+      box.textContent = `Service is healthy (${data.status}).`;
     } catch (e) {
-      box.textContent = `Request failed: ${e}`;
+      box.className = "alert alert-danger mt-3 mb-0";
+      box.textContent = e.message || "Request failed.";
     }
   });
 </script>

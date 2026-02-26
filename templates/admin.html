@@ -1,87 +1,194 @@
 {% extends "base.html" %}
-{% block title %}Admin{% endblock %}
+{% block title %}Admin Dashboard{% endblock %}
 {% block content %}
 <div class="card-shell p-4 mb-3">
-  <h2 class="h4">Admin Page</h2>
-  <p class="mb-0 text-secondary">Scooter status maintenance and weekly revenue summary.</p>
+  <h2 class="h4 mb-2">Admin Dashboard</h2>
+  <p class="muted-note mb-0">Maintain scooter availability and review weekly revenue performance.</p>
 </div>
 
-<div class="row g-3">
-  <div class="col-12 col-lg-6">
+<div class="row g-3 mb-3">
+  <div class="col-12 col-lg-8">
     <div class="card-shell p-4 h-100">
-      <div class="d-flex justify-content-between align-items-center mb-2">
-        <h3 class="h5 mb-0">Scooter List</h3>
-        <button id="loadScootersBtn" class="btn btn-sm btn-outline-dark">Refresh</button>
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 class="h5 mb-0">Scooter Management</h3>
+        <button id="refreshScootersBtn" class="btn btn-sm btn-outline-dark" type="button">Refresh</button>
       </div>
-      <div class="row g-2 mb-3">
-        <div class="col-12 col-md-4">
-          <input id="editScooterId" class="form-control" type="number" min="1" placeholder="scooter_id" />
-        </div>
-        <div class="col-12 col-md-4">
-          <select id="editStatus" class="form-select">
-            <option value="available">available</option>
-            <option value="in_use">in_use</option>
-            <option value="maintenance">maintenance</option>
-          </select>
-        </div>
-        <div class="col-12 col-md-4">
-          <button id="updateScooterBtn" class="btn btn-dark w-100">Update Status</button>
-        </div>
+      <div class="table-shell">
+        <table class="table table-hover mb-0" id="scootersTable">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Code</th>
+              <th>Status</th>
+              <th>Location</th>
+              <th>Update</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
       </div>
-      <pre id="scootersBox" class="result-box">Waiting for query...</pre>
+      <div id="scootersEmpty" class="empty-state d-none">No scooters found.</div>
     </div>
   </div>
-  <div class="col-12 col-lg-6">
+  <div class="col-12 col-lg-4">
     <div class="card-shell p-4 h-100">
-      <h3 class="h5">Weekly Revenue</h3>
+      <h3 class="h5 mb-3">Weekly Revenue</h3>
       <div class="mb-3">
-        <input id="weekStart" class="form-control" type="date" />
+        <label class="form-label">Week Start</label>
+        <input id="weekStartInput" class="form-control" type="date" />
       </div>
-      <button id="loadRevenueBtn" class="btn btn-dark w-100">Query Weekly Revenue</button>
-      <button id="logoutBtn" class="btn btn-outline-secondary w-100 mt-2">Logout</button>
-      <pre id="revenueBox" class="result-box mt-3">Waiting for query...</pre>
+      <button id="loadRevenueBtn" class="btn btn-dark w-100" type="button">Load Revenue</button>
+      <div class="row g-2 mt-3">
+        <div class="col-12">
+          <div class="metric-card">
+            <div class="metric-label">Total Revenue</div>
+            <div id="totalRevenueValue" class="metric-value">$0.00</div>
+          </div>
+        </div>
+        <div class="col-12">
+          <div class="metric-card">
+            <div class="metric-label">Week Range</div>
+            <div id="weekRangeValue" class="metric-value" style="font-size:1rem;">-</div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
+</div>
+
+<div class="card-shell p-4">
+  <h3 class="h5 mb-3">Revenue by Plan</h3>
+  <div class="table-shell">
+    <table class="table table-hover mb-0" id="revenueByPlanTable">
+      <thead>
+        <tr>
+          <th>Plan Type</th>
+          <th>Revenue</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <div id="revenueEmpty" class="empty-state d-none">No revenue data for this week.</div>
 </div>
 
 <script>
-  async function renderResponse(box, res) {
-    const data = await res.json();
-    box.textContent = JSON.stringify({ status: res.status, data }, null, 2);
+  function statusClass(status) {
+    const value = String(status || "").toLowerCase();
+    if (value === "available") return "status-available";
+    if (value === "in_use") return "status-in_use";
+    if (value === "maintenance") return "status-maintenance";
+    return "status-cancelled";
   }
 
-  document.getElementById("loadScootersBtn").addEventListener("click", async () => {
-    const box = document.getElementById("scootersBox");
-    box.textContent = "Loading...";
-    const res = await fetch("/api/admin/scooters");
-    await renderResponse(box, res);
-  });
+  function renderScooters(items) {
+    const tbody = document.querySelector("#scootersTable tbody");
+    const empty = document.getElementById("scootersEmpty");
+    tbody.innerHTML = "";
 
-  document.getElementById("updateScooterBtn").addEventListener("click", async () => {
-    const box = document.getElementById("scootersBox");
-    box.textContent = "Loading...";
-    const scooterId = Number(document.getElementById("editScooterId").value);
-    const status = document.getElementById("editStatus").value;
-    const res = await fetch(`/api/admin/scooters/${scooterId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
+    if (!items || items.length === 0) {
+      empty.classList.remove("d-none");
+      return;
+    }
+    empty.classList.add("d-none");
+
+    items.forEach((item) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>#${item.id}</td>
+        <td>${item.code}</td>
+        <td><span class="status-pill ${statusClass(item.status)}">${item.status}</span></td>
+        <td>
+          <input class="form-control form-control-sm location-input" value="${item.location_text || ""}" data-id="${item.id}" />
+        </td>
+        <td>
+          <div class="d-flex gap-1">
+            <select class="form-select form-select-sm status-select" data-id="${item.id}">
+              <option value="available" ${item.status === "available" ? "selected" : ""}>available</option>
+              <option value="in_use" ${item.status === "in_use" ? "selected" : ""}>in_use</option>
+              <option value="maintenance" ${item.status === "maintenance" ? "selected" : ""}>maintenance</option>
+            </select>
+            <button class="btn btn-sm btn-outline-primary save-scooter-btn" data-id="${item.id}">Save</button>
+          </div>
+        </td>
+      `;
+      tbody.appendChild(tr);
     });
-    await renderResponse(box, res);
+  }
+
+  function renderRevenue(data) {
+    document.getElementById("totalRevenueValue").textContent = formatMoney(data.total_revenue || 0);
+    document.getElementById("weekRangeValue").textContent = `${data.week_start || "-"} ~ ${data.week_end || "-"}`;
+
+    const tbody = document.querySelector("#revenueByPlanTable tbody");
+    const empty = document.getElementById("revenueEmpty");
+    tbody.innerHTML = "";
+
+    const items = data.by_plan || [];
+    if (items.length === 0) {
+      empty.classList.remove("d-none");
+      return;
+    }
+    empty.classList.add("d-none");
+
+    items.forEach((item) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${item.plan_type}</td>
+        <td>${formatMoney(item.revenue)}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  async function loadScooters() {
+    const data = await apiRequest("/api/admin/scooters");
+    renderScooters(data.items || []);
+  }
+
+  async function updateScooter(id) {
+    const statusEl = document.querySelector(`.status-select[data-id="${id}"]`);
+    const locationEl = document.querySelector(`.location-input[data-id="${id}"]`);
+
+    await apiRequest(`/api/admin/scooters/${id}`, {
+      method: "PATCH",
+      json: {
+        status: statusEl.value,
+        location_text: locationEl.value,
+      },
+    });
+    showToast(`Scooter #${id} updated.`, "success");
+    await loadScooters();
+  }
+
+  async function loadRevenue() {
+    const weekStart = document.getElementById("weekStartInput").value;
+    const query = weekStart ? `?week_start=${encodeURIComponent(weekStart)}` : "";
+    const data = await apiRequest(`/api/admin/revenue/weekly${query}`);
+    renderRevenue(data);
+  }
+
+  async function runWithUiError(action) {
+    try {
+      await action();
+    } catch (err) {
+      if (!err.alreadyNotified) showToast(err.message || "Request failed.", "danger");
+    }
+  }
+
+  document.getElementById("refreshScootersBtn").addEventListener("click", () => runWithUiError(loadScooters));
+  document.getElementById("loadRevenueBtn").addEventListener("click", () => runWithUiError(loadRevenue));
+
+  document.querySelector("#scootersTable tbody").addEventListener("click", (event) => {
+    const btn = event.target.closest(".save-scooter-btn");
+    if (!btn) return;
+    const id = Number(btn.dataset.id);
+    runWithUiError(() => updateScooter(id));
   });
 
-  document.getElementById("loadRevenueBtn").addEventListener("click", async () => {
-    const box = document.getElementById("revenueBox");
-    box.textContent = "Loading...";
-    const weekStart = document.getElementById("weekStart").value;
-    const url = weekStart ? `/api/admin/revenue/weekly?week_start=${weekStart}` : "/api/admin/revenue/weekly";
-    const res = await fetch(url);
-    await renderResponse(box, res);
-  });
-
-  document.getElementById("logoutBtn").addEventListener("click", async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    window.location.href = "/customer/login";
+  runWithUiError(async () => {
+    await loadScooters();
+    await loadRevenue();
   });
 </script>
 {% endblock %}

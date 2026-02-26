@@ -28,12 +28,17 @@
       </div>
     </nav>
     <main class="container py-4">{% block content %}{% endblock %}</main>
+    <div id="toastContainer" class="toast-container-custom"></div>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
     <script>
       const navLogoutBtn = document.getElementById("navLogoutBtn");
       if (navLogoutBtn) {
         navLogoutBtn.addEventListener("click", async () => {
-          await fetch("/api/auth/logout", { method: "POST" });
-          window.location.href = "/customer/login";
+          try {
+            await apiRequest("/api/auth/logout", { method: "POST", suppress401Redirect: true });
+          } finally {
+            window.location.href = "/customer/login";
+          }
         });
       }
     </script>

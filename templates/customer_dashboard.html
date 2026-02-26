@@ -2,103 +2,207 @@
 {% block title %}Customer Dashboard{% endblock %}
 {% block content %}
 <div class="card-shell p-4 mb-3">
-  <h2 class="h4">Customer Dashboard</h2>
-  <p class="mb-0 text-secondary">Pricing, create booking, view and cancel bookings.</p>
+  <h2 class="h4 mb-2">Customer Dashboard</h2>
+  <p class="muted-note mb-0">Browse plans, create bookings, and manage your orders.</p>
 </div>
 
-<div class="row g-3">
-  <div class="col-12 col-lg-6">
+<div class="row g-3 mb-3">
+  <div class="col-12 col-lg-7">
     <div class="card-shell p-4 h-100">
-      <div class="d-flex justify-content-between align-items-center mb-2">
+      <div class="d-flex justify-content-between align-items-center mb-3">
         <h3 class="h5 mb-0">Pricing Plans</h3>
-        <button id="loadPricingBtn" class="btn btn-sm btn-outline-primary">Refresh</button>
+        <button id="refreshPricingBtn" class="btn btn-sm btn-outline-primary" type="button">Refresh</button>
       </div>
-      <pre id="pricingBox" class="result-box">Click Refresh to load pricing.</pre>
+      <div class="table-shell">
+        <table class="table table-hover mb-0" id="pricingTable">
+          <thead>
+            <tr>
+              <th>Plan</th>
+              <th>Duration</th>
+              <th>Price</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="pricingEmpty" class="empty-state d-none">No pricing plans available.</div>
     </div>
   </div>
-  <div class="col-12 col-lg-6">
+  <div class="col-12 col-lg-5">
     <div class="card-shell p-4 h-100">
-      <h3 class="h5">Create Booking</h3>
+      <h3 class="h5 mb-3">Create Booking</h3>
       <div class="mb-2">
-        <input id="scooterId" class="form-control" type="number" min="1" placeholder="scooter_id" />
+        <label class="form-label">Scooter ID</label>
+        <input id="scooterIdInput" class="form-control" type="number" min="1" placeholder="e.g. 1" />
       </div>
       <div class="mb-3">
-        <select id="planType" class="form-select">
+        <label class="form-label">Plan Type</label>
+        <select id="planTypeSelect" class="form-select">
           <option value="1h">1h</option>
           <option value="4h">4h</option>
           <option value="1d">1d</option>
           <option value="1w">1w</option>
         </select>
       </div>
-      <button id="createBookingBtn" class="btn btn-success w-100">Create Booking</button>
-      <pre id="bookingBox" class="result-box mt-3">Waiting for booking...</pre>
+      <button id="createBookingBtn" class="btn btn-success w-100" type="button">Create Booking</button>
+      <div id="bookingCreatedHint" class="small text-success mt-3 d-none"></div>
+      <div class="small text-secondary mt-2">Tip: use an available scooter ID from your operational list.</div>
     </div>
   </div>
 </div>
 
-<div class="card-shell p-4 mt-3">
-  <div class="d-flex justify-content-between align-items-center mb-2">
+<div class="card-shell p-4">
+  <div class="d-flex justify-content-between align-items-center mb-3">
     <h3 class="h5 mb-0">My Bookings</h3>
-    <button id="loadBookingsBtn" class="btn btn-sm btn-outline-secondary">Refresh</button>
+    <button id="refreshBookingsBtn" class="btn btn-sm btn-outline-secondary" type="button">Refresh</button>
   </div>
-  <div class="row g-2">
-    <div class="col-12 col-md-5">
-      <input id="cancelBookingId" class="form-control" type="number" min="1" placeholder="booking_id to cancel" />
-    </div>
-    <div class="col-12 col-md-3">
-      <button id="cancelBookingBtn" class="btn btn-outline-danger w-100">Cancel Booking</button>
-    </div>
-    <div class="col-12 col-md-4">
-      <button id="logoutBtn" class="btn btn-outline-dark w-100">Logout</button>
-    </div>
+  <div class="table-shell">
+    <table class="table table-hover mb-0" id="bookingsTable">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Scooter</th>
+          <th>Plan</th>
+          <th>Total</th>
+          <th>Status</th>
+          <th>Created At</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
   </div>
-  <pre id="bookingsBox" class="result-box mt-3">Waiting for query...</pre>
+  <div id="bookingsEmpty" class="empty-state d-none">No bookings yet.</div>
 </div>
 
 <script>
-  async function renderResponse(box, res) {
-    const data = await res.json();
-    box.textContent = JSON.stringify({ status: res.status, data }, null, 2);
+  function statusClass(status) {
+    const value = String(status || "").toLowerCase();
+    if (value === "pending_payment") return "status-pending_payment";
+    if (value === "cancelled") return "status-cancelled";
+    if (value === "available") return "status-available";
+    if (value === "in_use") return "status-in_use";
+    if (value === "maintenance") return "status-maintenance";
+    return "status-cancelled";
   }
 
-  document.getElementById("loadPricingBtn").addEventListener("click", async () => {
-    const box = document.getElementById("pricingBox");
-    box.textContent = "Loading...";
-    const res = await fetch("/api/customer/pricing");
-    await renderResponse(box, res);
-  });
+  function renderPricing(plans) {
+    const tbody = document.querySelector("#pricingTable tbody");
+    const empty = document.getElementById("pricingEmpty");
+    tbody.innerHTML = "";
 
-  document.getElementById("createBookingBtn").addEventListener("click", async () => {
-    const box = document.getElementById("bookingBox");
-    box.textContent = "Loading...";
-    const scooter_id = Number(document.getElementById("scooterId").value);
-    const plan_type = document.getElementById("planType").value;
-    const res = await fetch("/api/customer/bookings", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ scooter_id, plan_type }),
+    if (!plans || plans.length === 0) {
+      empty.classList.remove("d-none");
+      return;
+    }
+    empty.classList.add("d-none");
+
+    plans.forEach((plan) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><strong>${plan.plan_type}</strong></td>
+        <td>${plan.duration_minutes} mins</td>
+        <td>${formatMoney(plan.price)}</td>
+      `;
+      tbody.appendChild(tr);
     });
-    await renderResponse(box, res);
+  }
+
+  function formatTime(value) {
+    if (!value) return "-";
+    const d = new Date(value.replace(" ", "T"));
+    if (Number.isNaN(d.getTime())) return value;
+    return d.toLocaleString();
+  }
+
+  function renderBookings(items) {
+    const tbody = document.querySelector("#bookingsTable tbody");
+    const empty = document.getElementById("bookingsEmpty");
+    tbody.innerHTML = "";
+
+    if (!items || items.length === 0) {
+      empty.classList.remove("d-none");
+      return;
+    }
+    empty.classList.add("d-none");
+
+    items.forEach((item) => {
+      const canCancel = item.status !== "CANCELLED";
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>#${item.id}</td>
+        <td>${item.scooter_id}</td>
+        <td>${item.plan_type}</td>
+        <td>${formatMoney(item.total_cost)}</td>
+        <td><span class="status-pill ${statusClass(item.status)}">${item.status}</span></td>
+        <td>${formatTime(item.created_at)}</td>
+        <td>
+          ${
+            canCancel
+              ? `<button class="btn btn-sm btn-outline-danger cancel-booking-btn" data-booking-id="${item.id}">Cancel</button>`
+              : `<span class="small text-secondary">-</span>`
+          }
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  async function loadPricing() {
+    const plansData = await apiRequest("/api/customer/pricing");
+    renderPricing(plansData.plans || []);
+  }
+
+  async function loadBookings() {
+    const bookingData = await apiRequest("/api/customer/bookings");
+    renderBookings(bookingData.items || []);
+  }
+
+  async function createBooking() {
+    const scooterId = Number(document.getElementById("scooterIdInput").value);
+    const planType = document.getElementById("planTypeSelect").value;
+    const hint = document.getElementById("bookingCreatedHint");
+
+    const result = await apiRequest("/api/customer/bookings", {
+      method: "POST",
+      json: { scooter_id: scooterId, plan_type: planType },
+    });
+
+    const booking = result.booking;
+    hint.textContent = `Booking #${booking.id} created successfully.`;
+    hint.classList.remove("d-none");
+    showToast("Booking created successfully.", "success");
+    await loadBookings();
+  }
+
+  async function cancelBooking(bookingId) {
+    await apiRequest(`/api/customer/bookings/${bookingId}`, { method: "DELETE" });
+    showToast(`Booking #${bookingId} cancelled.`, "success");
+    await loadBookings();
+  }
+
+  async function runWithUiError(action) {
+    try {
+      await action();
+    } catch (err) {
+      if (!err.alreadyNotified) showToast(err.message || "Request failed.", "danger");
+    }
+  }
+
+  document.getElementById("refreshPricingBtn").addEventListener("click", () => runWithUiError(loadPricing));
+  document.getElementById("refreshBookingsBtn").addEventListener("click", () => runWithUiError(loadBookings));
+  document.getElementById("createBookingBtn").addEventListener("click", () => runWithUiError(createBooking));
+
+  document.querySelector("#bookingsTable tbody").addEventListener("click", (event) => {
+    const btn = event.target.closest(".cancel-booking-btn");
+    if (!btn) return;
+    const bookingId = Number(btn.dataset.bookingId);
+    runWithUiError(() => cancelBooking(bookingId));
   });
 
-  document.getElementById("loadBookingsBtn").addEventListener("click", async () => {
-    const box = document.getElementById("bookingsBox");
-    box.textContent = "Loading...";
-    const res = await fetch("/api/customer/bookings");
-    await renderResponse(box, res);
-  });
-
-  document.getElementById("cancelBookingBtn").addEventListener("click", async () => {
-    const box = document.getElementById("bookingsBox");
-    box.textContent = "Loading...";
-    const bookingId = Number(document.getElementById("cancelBookingId").value);
-    const res = await fetch(`/api/customer/bookings/${bookingId}`, { method: "DELETE" });
-    await renderResponse(box, res);
-  });
-
-  document.getElementById("logoutBtn").addEventListener("click", async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    window.location.href = "/customer/login";
+  runWithUiError(async () => {
+    await loadPricing();
+    await loadBookings();
   });
 </script>
 {% endblock %}

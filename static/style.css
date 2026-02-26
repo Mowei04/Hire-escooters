@@ -9,13 +9,136 @@ body {
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
 }
 
-.result-box {
-  background: #0f172a;
-  color: #e2e8f0;
+.table-shell {
+  border: 1px solid #e7ecf2;
   border-radius: 12px;
-  padding: 12px;
-  min-height: 110px;
+  overflow: hidden;
+}
+
+.table-shell table {
   margin: 0;
+}
+
+.table-shell thead th {
+  background: #f3f7fb;
+  border-bottom: 1px solid #e7ecf2;
+  color: #334155;
   font-size: 13px;
-  overflow-x: auto;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.table-shell td {
+  vertical-align: middle;
+}
+
+.muted-note {
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.empty-state {
+  color: #64748b;
+  padding: 18px;
+  text-align: center;
+}
+
+.status-pill {
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.status-available {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.status-in_use {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.status-maintenance {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.status-pending_payment {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.status-cancelled {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.metric-card {
+  border: 1px solid #e7ecf2;
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.metric-label {
+  color: #64748b;
+  font-size: 0.82rem;
+  margin-bottom: 4px;
+}
+
+.metric-value {
+  color: #0f172a;
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
+.toast-container-custom {
+  position: fixed;
+  right: 16px;
+  top: 78px;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.toast-item {
+  min-width: 280px;
+  max-width: 360px;
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: #fff;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.24);
+  transition: all 0.25s ease;
+}
+
+.toast-danger {
+  background: #b91c1c;
+}
+
+.toast-warning {
+  background: #9a3412;
+}
+
+.toast-success {
+  background: #166534;
+}
+
+.toast-hide {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+@media (max-width: 768px) {
+  .toast-container-custom {
+    right: 12px;
+    left: 12px;
+    top: 72px;
+  }
+
+  .toast-item {
+    min-width: 0;
+    max-width: 100%;
+  }
 }
