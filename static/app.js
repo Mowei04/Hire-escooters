@@ -1,9 +1,11 @@
+// Normalize backend error payloads to a single human-readable message.
 function extractErrorMessage(payload, fallback) {
   if (payload && payload.error && payload.error.message) return payload.error.message;
   if (payload && payload.message) return payload.message;
   return fallback;
 }
 
+// Ensure a single toast container exists on the page.
 function ensureToastContainer() {
   let container = document.getElementById("toastContainer");
   if (!container) {
@@ -15,6 +17,7 @@ function ensureToastContainer() {
   return container;
 }
 
+// Show temporary toast notification.
 function showToast(message, type = "danger") {
   const container = ensureToastContainer();
   const toast = document.createElement("div");
@@ -27,6 +30,7 @@ function showToast(message, type = "danger") {
   }, 2600);
 }
 
+// Parse API responses consistently for JSON and non-JSON bodies.
 async function parseResponseBody(response) {
   const contentType = response.headers.get("content-type") || "";
   if (contentType.includes("application/json")) {
@@ -36,6 +40,7 @@ async function parseResponseBody(response) {
   return { message: text };
 }
 
+// Centralized API wrapper that handles auth and permission errors.
 async function apiRequest(url, options = {}) {
   const {
     suppress401Redirect = false,
@@ -88,6 +93,7 @@ async function apiRequest(url, options = {}) {
   return payload;
 }
 
+// Format numeric values as currency for UI tables/cards.
 function formatMoney(value) {
   return `$${Number(value).toFixed(2)}`;
 }

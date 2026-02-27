@@ -1,14 +1,17 @@
+/* Base page background. */
 body {
   background: linear-gradient(120deg, #f8fafc, #e6f8f1);
   min-height: 100vh;
 }
 
+/* Shared elevated card container. */
 .card-shell {
   background: #fff;
   border-radius: 16px;
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
 }
 
+/* Table wrapper with soft border and rounded corners. */
 .table-shell {
   border: 1px solid #e7ecf2;
   border-radius: 12px;
@@ -19,6 +22,7 @@ body {
   margin: 0;
 }
 
+/* Header row styling for dashboard tables. */
 .table-shell thead th {
   background: #f3f7fb;
   border-bottom: 1px solid #e7ecf2;
@@ -32,17 +36,20 @@ body {
   vertical-align: middle;
 }
 
+/* Secondary hint text used below headings or inputs. */
 .muted-note {
   color: #64748b;
   font-size: 0.9rem;
 }
 
+/* Empty state message style for tables/cards. */
 .empty-state {
   color: #64748b;
   padding: 18px;
   text-align: center;
 }
 
+/* Generic status badge base style. */
 .status-pill {
   border-radius: 999px;
   padding: 4px 10px;
@@ -50,6 +57,7 @@ body {
   font-weight: 600;
 }
 
+/* Semantic colors for scooter/booking statuses. */
 .status-available {
   background: #dcfce7;
   color: #166534;
@@ -75,6 +83,7 @@ body {
   color: #334155;
 }
 
+/* KPI summary cards (e.g., revenue metrics). */
 .metric-card {
   border: 1px solid #e7ecf2;
   border-radius: 12px;
@@ -93,6 +102,7 @@ body {
   font-weight: 700;
 }
 
+/* Floating toast container for global notifications. */
 .toast-container-custom {
   position: fixed;
   right: 16px;
@@ -103,6 +113,7 @@ body {
   gap: 8px;
 }
 
+/* Individual toast notification card. */
 .toast-item {
   min-width: 280px;
   max-width: 360px;
@@ -113,6 +124,7 @@ body {
   transition: all 0.25s ease;
 }
 
+/* Severity variants for toast notifications. */
 .toast-danger {
   background: #b91c1c;
 }
@@ -130,6 +142,7 @@ body {
   transform: translateY(-8px);
 }
 
+/* Mobile adjustments for toast layout. */
 @media (max-width: 768px) {
   .toast-container-custom {
     right: 12px;

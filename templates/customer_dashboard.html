@@ -46,15 +46,48 @@
       </div>
       <button id="createBookingBtn" class="btn btn-success w-100" type="button">Create Booking</button>
       <div id="bookingCreatedHint" class="small text-success mt-3 d-none"></div>
-      <div class="small text-secondary mt-2">Tip: use an available scooter ID from your operational list.</div>
+      <div class="small text-secondary mt-2">Tip: select a scooter from the status table below.</div>
     </div>
   </div>
 </div>
 
+<div class="card-shell p-4 mb-3">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h3 class="h5 mb-0">Scooter Status</h3>
+    <button id="refreshScootersBtn" class="btn btn-sm btn-outline-dark" type="button">Refresh</button>
+  </div>
+  <div class="table-shell">
+    <table class="table table-hover mb-0" id="customerScootersTable">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Code</th>
+          <th>Status</th>
+          <th>Location</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <div id="customerScootersEmpty" class="empty-state d-none">No scooters found.</div>
+</div>
+
 <div class="card-shell p-4">
   <div class="d-flex justify-content-between align-items-center mb-3">
-    <h3 class="h5 mb-0">My Bookings</h3>
-    <button id="refreshBookingsBtn" class="btn btn-sm btn-outline-secondary" type="button">Refresh</button>
+    <div>
+      <h3 class="h5 mb-1">My Bookings</h3>
+      <div class="small text-secondary">By default, records older than 3 days are hidden.</div>
+    </div>
+    <div class="d-flex align-items-center gap-3">
+      <div class="form-check mb-0">
+        <input class="form-check-input" type="checkbox" id="showAllCancelledToggle" />
+        <label class="form-check-label small" for="showAllCancelledToggle">
+          Show full history
+        </label>
+      </div>
+      <button id="refreshBookingsBtn" class="btn btn-sm btn-outline-secondary" type="button">Refresh</button>
+    </div>
   </div>
   <div class="table-shell">
     <table class="table table-hover mb-0" id="bookingsTable">
@@ -64,8 +97,12 @@
           <th>Scooter</th>
           <th>Plan</th>
           <th>Total</th>
-          <th>Status</th>
+          <th>Booking Status</th>
+          <th>Scooter Now</th>
+          <th>Sync</th>
+          <th>Remaining</th>
           <th>Created At</th>
+          <th>Ended At</th>
           <th>Action</th>
         </tr>
       </thead>
@@ -76,9 +113,13 @@
 </div>
 
 <script>
+  let bookingCountdownTimer = null;
+
+  // Map backend status values to visual badge styles.
   function statusClass(status) {
     const value = String(status || "").toLowerCase();
     if (value === "pending_payment") return "status-pending_payment";
+    if (value === "completed") return "status-available";
     if (value === "cancelled") return "status-cancelled";
     if (value === "available") return "status-available";
     if (value === "in_use") return "status-in_use";
@@ -86,6 +127,7 @@
     return "status-cancelled";
   }
 
+  // Render pricing table rows from API response.
   function renderPricing(plans) {
     const tbody = document.querySelector("#pricingTable tbody");
     const empty = document.getElementById("pricingEmpty");
@@ -108,6 +150,7 @@
     });
   }
 
+  // Convert backend timestamps to local readable time.
   function formatTime(value) {
     if (!value) return "-";
     const d = new Date(value.replace(" ", "T"));
@@ -115,6 +158,85 @@
     return d.toLocaleString();
   }
 
+  // Format remaining seconds as hh:mm:ss.
+  function formatRemaining(seconds) {
+    const safe = Math.max(0, Number(seconds) || 0);
+    const h = Math.floor(safe / 3600);
+    const m = Math.floor((safe % 3600) / 60);
+    const s = safe % 60;
+    return [h, m, s].map((v) => String(v).padStart(2, "0")).join(":");
+  }
+
+  // Start client-side countdown and auto-refresh when a booking reaches zero.
+  function startBookingCountdown() {
+    if (bookingCountdownTimer) {
+      clearInterval(bookingCountdownTimer);
+      bookingCountdownTimer = null;
+    }
+
+    const countdownNodes = Array.from(document.querySelectorAll(".booking-remaining[data-seconds]"));
+    if (countdownNodes.length === 0) return;
+
+    bookingCountdownTimer = setInterval(() => {
+      let needsSyncRefresh = false;
+
+      countdownNodes.forEach((node) => {
+        const current = Number(node.dataset.seconds || "0");
+        if (current <= 0) {
+          node.textContent = "00:00:00";
+          needsSyncRefresh = true;
+          return;
+        }
+        const next = current - 1;
+        node.dataset.seconds = String(next);
+        node.textContent = formatRemaining(next);
+        if (next === 0) needsSyncRefresh = true;
+      });
+
+      if (needsSyncRefresh) {
+        clearInterval(bookingCountdownTimer);
+        bookingCountdownTimer = null;
+        runWithUiError(async () => {
+          await loadScooters();
+          await loadBookings();
+        });
+      }
+    }, 1000);
+  }
+
+  // Render scooter status rows and booking shortcuts.
+  function renderScooters(items) {
+    const tbody = document.querySelector("#customerScootersTable tbody");
+    const empty = document.getElementById("customerScootersEmpty");
+    tbody.innerHTML = "";
+
+    if (!items || items.length === 0) {
+      empty.classList.remove("d-none");
+      return;
+    }
+    empty.classList.add("d-none");
+
+    items.forEach((item) => {
+      const canUse = item.status === "available";
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>#${item.id}</td>
+        <td>${item.code}</td>
+        <td><span class="status-pill ${statusClass(item.status)}">${item.status}</span></td>
+        <td>${item.location_text || "-"}</td>
+        <td>
+          ${
+            canUse
+              ? `<button class="btn btn-sm btn-outline-primary choose-scooter-btn" data-scooter-id="${item.id}">Use for booking</button>`
+              : `<span class="small text-secondary">Not available</span>`
+          }
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  // Render booking table rows and action buttons.
   function renderBookings(items) {
     const tbody = document.querySelector("#bookingsTable tbody");
     const empty = document.getElementById("bookingsEmpty");
@@ -127,7 +249,9 @@
     empty.classList.add("d-none");
 
     items.forEach((item) => {
-      const canCancel = item.status !== "CANCELLED";
+      const canCancel = item.status === "PENDING_PAYMENT";
+      const isTimedActive = item.status === "PENDING_PAYMENT" && Number(item.remaining_seconds || 0) > 0;
+      const remainingText = formatRemaining(item.remaining_seconds || 0);
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td>#${item.id}</td>
@@ -135,7 +259,23 @@
         <td>${item.plan_type}</td>
         <td>${formatMoney(item.total_cost)}</td>
         <td><span class="status-pill ${statusClass(item.status)}">${item.status}</span></td>
+        <td><span class="status-pill ${statusClass(item.scooter_current_status)}">${item.scooter_current_status}</span></td>
+        <td>
+          ${
+            item.scooter_status_aligned
+              ? `<span class="small text-success">Aligned</span>`
+              : `<span class="small text-danger">Needs attention</span>`
+          }
+        </td>
+        <td>
+          ${
+            isTimedActive
+              ? `<span class="booking-remaining" data-seconds="${item.remaining_seconds}">${remainingText}</span>`
+              : `<span class="small text-secondary">${remainingText}</span>`
+          }
+        </td>
         <td>${formatTime(item.created_at)}</td>
+        <td>${formatTime(item.ended_at)}</td>
         <td>
           ${
             canCancel
@@ -146,18 +286,33 @@
       `;
       tbody.appendChild(tr);
     });
+
+    startBookingCountdown();
   }
 
+  // Fetch pricing data and paint UI.
   async function loadPricing() {
     const plansData = await apiRequest("/api/customer/pricing");
     renderPricing(plansData.plans || []);
   }
 
+  // Fetch booking list and paint UI.
   async function loadBookings() {
-    const bookingData = await apiRequest("/api/customer/bookings");
+    const showAllCancelled = document.getElementById("showAllCancelledToggle").checked;
+    const url = showAllCancelled
+      ? "/api/customer/bookings?include_cancelled=all"
+      : "/api/customer/bookings";
+    const bookingData = await apiRequest(url);
     renderBookings(bookingData.items || []);
   }
 
+  // Fetch scooter inventory for customer browsing.
+  async function loadScooters() {
+    const scooterData = await apiRequest("/api/customer/scooters");
+    renderScooters(scooterData.items || []);
+  }
+
+  // Create a booking, then refresh booking table.
   async function createBooking() {
     const scooterId = Number(document.getElementById("scooterIdInput").value);
     const planType = document.getElementById("planTypeSelect").value;
@@ -172,15 +327,19 @@
     hint.textContent = `Booking #${booking.id} created successfully.`;
     hint.classList.remove("d-none");
     showToast("Booking created successfully.", "success");
+    await loadScooters();
     await loadBookings();
   }
 
+  // Cancel a booking, then refresh booking table.
   async function cancelBooking(bookingId) {
     await apiRequest(`/api/customer/bookings/${bookingId}`, { method: "DELETE" });
     showToast(`Booking #${bookingId} cancelled.`, "success");
+    await loadScooters();
     await loadBookings();
   }
 
+  // Shared error boundary for all async UI actions.
   async function runWithUiError(action) {
     try {
       await action();
@@ -190,8 +349,18 @@
   }
 
   document.getElementById("refreshPricingBtn").addEventListener("click", () => runWithUiError(loadPricing));
+  document.getElementById("refreshScootersBtn").addEventListener("click", () => runWithUiError(loadScooters));
   document.getElementById("refreshBookingsBtn").addEventListener("click", () => runWithUiError(loadBookings));
+  document.getElementById("showAllCancelledToggle").addEventListener("change", () => runWithUiError(loadBookings));
   document.getElementById("createBookingBtn").addEventListener("click", () => runWithUiError(createBooking));
+
+  document.querySelector("#customerScootersTable tbody").addEventListener("click", (event) => {
+    const btn = event.target.closest(".choose-scooter-btn");
+    if (!btn) return;
+    const scooterId = Number(btn.dataset.scooterId);
+    document.getElementById("scooterIdInput").value = scooterId;
+    showToast(`Scooter #${scooterId} selected for booking.`, "success");
+  });
 
   document.querySelector("#bookingsTable tbody").addEventListener("click", (event) => {
     const btn = event.target.closest(".cancel-booking-btn");
@@ -200,9 +369,13 @@
     runWithUiError(() => cancelBooking(bookingId));
   });
 
-  runWithUiError(async () => {
-    await loadPricing();
-    await loadBookings();
+  // Auto-load data when the page is ready so users do not need to click Refresh first.
+  document.addEventListener("DOMContentLoaded", () => {
+    runWithUiError(async () => {
+      await loadPricing();
+      await loadScooters();
+      await loadBookings();
+    });
   });
 </script>
 {% endblock %}

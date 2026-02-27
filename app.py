@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Main Flask application for auth, customer booking flow, and admin operations."""
+
 import sqlite3
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -12,8 +14,10 @@ BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "scooter_mvp.db"
 
 app = Flask(__name__)
+# NOTE: Keep this in environment variables for production deployments.
 app.config["SECRET_KEY"] = "hire-escooters-dev-secret"
 
+# Pricing catalog used by customer pricing and booking endpoints.
 PLANS = {
     "1h": {"duration_minutes": 60, "price": "2.99"},
     "4h": {"duration_minutes": 240, "price": "8.99"},
@@ -21,24 +25,33 @@ PLANS = {
     "1w": {"duration_minutes": 10080, "price": "79.99"},
 }
 
+# Allowed state transitions for admin scooter updates.
 ALLOWED_SCOOTER_STATUS = {"available", "in_use", "maintenance"}
+# Booking statuses considered currently running.
+ACTIVE_BOOKING_STATUSES = {"PENDING_PAYMENT"}
+# Fixed countdown window for PENDING_PAYMENT booking lifecycle.
+PENDING_PAYMENT_TIMEOUT_MINUTES = 5
 
 
 def get_db() -> sqlite3.Connection:
+    """Return a SQLite connection with row-access by column name."""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
 
 def api_error(status_code: int, code: str, message: str):
+    """Build a standardized API error payload."""
     return jsonify({"error": {"code": code, "message": message}}), status_code
 
 
 def normalize_username(value: str) -> str:
+    """Normalize usernames to a lowercase, trimmed value."""
     return value.strip().lower()
 
 
 def ensure_unique_username(base: str, used: set[str]) -> str:
+    """Generate a unique username candidate when duplicates exist."""
     candidate = base or "user"
     suffix = 1
     while candidate in used:
@@ -48,7 +61,85 @@ def ensure_unique_username(base: str, used: set[str]) -> str:
     return candidate
 
 
+def parse_db_datetime(value: str | None) -> datetime | None:
+    """Parse sqlite datetime text into naive datetime object."""
+    if not value:
+        return None
+    normalized = value.replace(" ", "T")
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        # Fallback for unusual sqlite timestamp formats.
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f"):
+            try:
+                return datetime.strptime(value, fmt)
+            except ValueError:
+                continue
+    return None
+
+
+def sync_expired_bookings(conn: sqlite3.Connection) -> int:
+    """Auto-complete expired active bookings and release scooters."""
+    cur = conn.cursor()
+    active_rows = cur.execute(
+        """
+        SELECT id, scooter_id, plan_type, created_at
+        FROM bookings
+        WHERE status IN ({})
+        """.format(",".join("?" * len(ACTIVE_BOOKING_STATUSES))),
+        tuple(ACTIVE_BOOKING_STATUSES),
+    ).fetchall()
+
+    now = datetime.utcnow()
+    expired_booking_ids: list[int] = []
+    affected_scooters: set[int] = set()
+
+    for row in active_rows:
+        duration_minutes = PENDING_PAYMENT_TIMEOUT_MINUTES
+        started_at = parse_db_datetime(row["created_at"])
+        if duration_minutes is None or started_at is None:
+            continue
+
+        expires_at = started_at + timedelta(minutes=duration_minutes)
+        if now >= expires_at:
+            expired_booking_ids.append(row["id"])
+            affected_scooters.add(row["scooter_id"])
+
+    if not expired_booking_ids:
+        return 0
+
+    # Mark expired active bookings as completed.
+    cur.executemany(
+        """
+        UPDATE bookings
+        SET status = 'COMPLETED', ended_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+          AND status IN ({})
+        """.format(",".join("?" * len(ACTIVE_BOOKING_STATUSES))),
+        [(booking_id, *tuple(ACTIVE_BOOKING_STATUSES)) for booking_id in expired_booking_ids],
+    )
+
+    # Release scooter only if no other active booking remains.
+    for scooter_id in affected_scooters:
+        active_left = cur.execute(
+            """
+            SELECT 1
+            FROM bookings
+            WHERE scooter_id = ?
+              AND status IN ({})
+            LIMIT 1
+            """.format(",".join("?" * len(ACTIVE_BOOKING_STATUSES))),
+            (scooter_id, *tuple(ACTIVE_BOOKING_STATUSES)),
+        ).fetchone()
+        if not active_left:
+            cur.execute("UPDATE scooters SET status = 'available' WHERE id = ?", (scooter_id,))
+
+    conn.commit()
+    return len(expired_booking_ids)
+
+
 def init_db() -> None:
+    """Create tables, apply lightweight migrations, and seed baseline data."""
     conn = get_db()
     cur = conn.cursor()
 
@@ -85,6 +176,7 @@ def init_db() -> None:
             total_cost TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'PENDING_PAYMENT',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            ended_at TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users (id),
             FOREIGN KEY (scooter_id) REFERENCES scooters (id)
         )
@@ -100,6 +192,10 @@ def init_db() -> None:
     if "username" not in user_columns:
         cur.execute("ALTER TABLE users ADD COLUMN username TEXT")
 
+    booking_columns = {row["name"] for row in cur.execute("PRAGMA table_info(bookings)").fetchall()}
+    if "ended_at" not in booking_columns:
+        cur.execute("ALTER TABLE bookings ADD COLUMN ended_at TIMESTAMP")
+
     # Normalize and backfill usernames for existing rows before adding unique index.
     users = cur.execute("SELECT id, username, email FROM users ORDER BY id").fetchall()
     used_usernames: set[str] = set()
@@ -111,9 +207,11 @@ def init_db() -> None:
         if username != (row["username"] or ""):
             cur.execute("UPDATE users SET username = ? WHERE id = ?", (username, row["id"]))
 
+    # Add unique indexes to enforce integrity at database level.
     cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique ON users(email)")
     cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_unique ON users(username)")
 
+    # Seed scooter records once for local/demo usage.
     cur.execute("SELECT COUNT(*) AS count FROM scooters")
     if cur.fetchone()["count"] == 0:
         cur.executemany(
@@ -125,6 +223,7 @@ def init_db() -> None:
             ],
         )
 
+    # Seed default accounts used in demos/tests if they do not exist.
     cur.execute(
         "INSERT OR IGNORE INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)",
         ("manager", "manager@example.com", "plain::admin123", "admin"),
@@ -139,6 +238,7 @@ def init_db() -> None:
 
 
 def get_current_user() -> sqlite3.Row | None:
+    """Resolve current session user from DB; return None when not logged in."""
     user_id = session.get("user_id")
     if not user_id:
         return None
@@ -152,6 +252,7 @@ def get_current_user() -> sqlite3.Row | None:
 
 
 def require_role(role: str | None = None):
+    """Decorator to require login and optional role match for protected endpoints."""
     def decorator(fn):
         @wraps(fn)
         def wrapper(*args, **kwargs):
@@ -169,10 +270,12 @@ def require_role(role: str | None = None):
 
 
 def to_money(value: Decimal) -> str:
+    """Format decimal value to 2-digit currency-like text."""
     return f"{value.quantize(Decimal('0.01'))}"
 
 
 def redirect_after_login(user: sqlite3.Row):
+    """Route users to the correct dashboard based on role."""
     if user["role"] == "admin":
         return redirect(url_for("admin_page"))
     return redirect(url_for("customer_dashboard_page"))
@@ -180,16 +283,19 @@ def redirect_after_login(user: sqlite3.Row):
 
 @app.context_processor
 def inject_current_user():
+    """Inject session user into all templates for role-based rendering."""
     return {"current_user": get_current_user()}
 
 
 @app.get("/")
 def home():
+    """Render public homepage."""
     return render_template("index.html")
 
 
 @app.get("/customer")
 def customer_home():
+    """Shortcut customer entrypoint; redirect logged-in users by role."""
     user = get_current_user()
     if user:
         return redirect_after_login(user)
@@ -198,6 +304,7 @@ def customer_home():
 
 @app.get("/customer/register")
 def customer_register_page():
+    """Render register page for anonymous users only."""
     user = get_current_user()
     if user:
         return redirect_after_login(user)
@@ -206,6 +313,7 @@ def customer_register_page():
 
 @app.get("/customer/login")
 def customer_login_page():
+    """Render login page for anonymous users only."""
     user = get_current_user()
     if user:
         return redirect_after_login(user)
@@ -214,6 +322,7 @@ def customer_login_page():
 
 @app.get("/customer/dashboard")
 def customer_dashboard_page():
+    """Render customer dashboard; block anonymous/non-customer roles."""
     user = get_current_user()
     if not user:
         return redirect(url_for("customer_login_page"))
@@ -224,6 +333,7 @@ def customer_dashboard_page():
 
 @app.get("/admin")
 def admin_page():
+    """Render admin dashboard; block anonymous/non-admin roles."""
     user = get_current_user()
     if not user:
         return redirect(url_for("customer_login_page"))
@@ -234,11 +344,13 @@ def admin_page():
 
 @app.get("/api/health")
 def health_check():
+    """Basic health endpoint used by smoke tests and monitoring."""
     return jsonify({"status": "ok", "framework": "flask"})
 
 
 @app.post("/api/auth/register")
 def register_user():
+    """Register a new customer with unique username/email constraints."""
     payload = request.get_json(silent=True) or {}
     username = normalize_username(payload.get("username") or "")
     email = (payload.get("email") or "").strip().lower()
@@ -249,6 +361,7 @@ def register_user():
 
     conn = get_db()
     try:
+        # Validate uniqueness with explicit messages for better UX.
         email_exists = conn.execute("SELECT 1 FROM users WHERE email = ?", (email,)).fetchone()
         if email_exists:
             return jsonify({"message": "Email already exists"}), 409
@@ -272,6 +385,7 @@ def register_user():
 
 @app.post("/api/auth/login")
 def login_user():
+    """Authenticate user credentials and start session."""
     payload = request.get_json(silent=True) or {}
     email = (payload.get("email") or "").strip().lower()
     password = payload.get("password") or ""
@@ -291,6 +405,7 @@ def login_user():
     if not user:
         return api_error(401, "INVALID_CREDENTIALS", "Invalid email or password")
 
+    # Reset session to prevent stale identity leakage, then set active user.
     session.clear()
     session["user_id"] = user["id"]
 
@@ -300,6 +415,7 @@ def login_user():
 @app.post("/api/auth/logout")
 @require_role()
 def logout_user():
+    """Clear active session."""
     session.clear()
     return jsonify({"message": "Logged out"})
 
@@ -307,19 +423,44 @@ def logout_user():
 @app.get("/api/auth/me")
 @require_role()
 def whoami():
+    """Return current authenticated user profile."""
     return jsonify({"user": dict(g.current_user)})
 
 
 @app.get("/api/customer/pricing")
 @require_role("customer")
 def get_pricing():
+    """Return available pricing plans for customer role."""
     plans_list = [{"plan_type": k, **v} for k, v in PLANS.items()]
     return jsonify({"plans": plans_list})
+
+
+@app.get("/api/customer/scooters")
+@require_role("customer")
+def list_scooters_customer():
+    """Return scooter inventory with status for customer browsing."""
+    conn = get_db()
+    try:
+        sync_expired_bookings(conn)
+        rows = conn.execute(
+            "SELECT id, code, status, location_text FROM scooters ORDER BY id"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    items = []
+    for row in rows:
+        data = dict(row)
+        data["is_available"] = data["status"] == "available"
+        items.append(data)
+
+    return jsonify({"items": items})
 
 
 @app.post("/api/customer/bookings")
 @require_role("customer")
 def create_booking():
+    """Create a booking and mark the scooter as in_use."""
     payload = request.get_json(silent=True) or {}
     scooter_id = payload.get("scooter_id")
     plan_type = payload.get("plan_type")
@@ -330,6 +471,10 @@ def create_booking():
     conn = get_db()
     cur = conn.cursor()
     try:
+        # Ensure any timed-out active booking is finalized before availability check.
+        sync_expired_bookings(conn)
+
+        # Check scooter existence and availability before booking.
         scooter = cur.execute("SELECT id, status FROM scooters WHERE id = ?", (scooter_id,)).fetchone()
         if not scooter:
             return api_error(404, "SCOOTER_NOT_FOUND", "Scooter does not exist")
@@ -337,6 +482,8 @@ def create_booking():
             return api_error(409, "SCOOTER_UNAVAILABLE", "Scooter is not available")
 
         cost = PLANS[plan_type]["price"]
+        expires_at = datetime.utcnow() + timedelta(minutes=PENDING_PAYMENT_TIMEOUT_MINUTES)
+        # Persist booking and lock scooter status in the same transaction.
         cur.execute(
             "INSERT INTO bookings (user_id, scooter_id, plan_type, total_cost, status) VALUES (?, ?, ?, ?, ?)",
             (g.current_user["id"], scooter_id, plan_type, cost, "PENDING_PAYMENT"),
@@ -354,10 +501,13 @@ def create_booking():
                     "plan_type": plan_type,
                     "status": "PENDING_PAYMENT",
                     "total_cost": cost,
+                    "duration_minutes": PENDING_PAYMENT_TIMEOUT_MINUTES,
+                    "expires_at": expires_at.strftime("%Y-%m-%d %H:%M:%S"),
                 }
             }
         ), 201
     except Exception:
+        # Roll back any partial DB updates if an unexpected error occurs.
         conn.rollback()
         raise
     finally:
@@ -367,28 +517,95 @@ def create_booking():
 @app.get("/api/customer/bookings")
 @require_role("customer")
 def list_bookings():
+    """List current user bookings with controllable cancelled-history window."""
+    include_cancelled = (request.args.get("include_cancelled") or "recent").strip().lower()
+    cancelled_days_raw = (request.args.get("cancelled_days") or "3").strip()
+    try:
+        cancelled_days = max(1, min(3650, int(cancelled_days_raw)))
+    except ValueError:
+        cancelled_days = 3
+
     conn = get_db()
     try:
-        rows = conn.execute(
-            """
-            SELECT id, user_id, scooter_id, plan_type, total_cost, status, created_at
-            FROM bookings
-            WHERE user_id = ?
-            ORDER BY id DESC
-            """,
-            (g.current_user["id"],),
-        ).fetchall()
+        sync_expired_bookings(conn)
+
+        base_query = """
+            SELECT
+                b.id,
+                b.user_id,
+                b.scooter_id,
+                b.plan_type,
+                b.total_cost,
+                b.status,
+                b.created_at,
+                b.ended_at,
+                s.status AS scooter_current_status
+            FROM bookings b
+            JOIN scooters s ON s.id = b.scooter_id
+            WHERE b.user_id = ?
+        """
+        params: list[object] = [g.current_user["id"]]
+
+        if include_cancelled == "none":
+            base_query += " AND b.status IN ({})".format(",".join("?" * len(ACTIVE_BOOKING_STATUSES)))
+            params.extend(tuple(ACTIVE_BOOKING_STATUSES))
+        elif include_cancelled == "all":
+            pass
+        else:
+            # Default behavior: keep active bookings and recent ended bookings.
+            include_cancelled = "recent"
+            base_query += " AND (b.status IN ({}) OR datetime(COALESCE(b.ended_at, b.created_at)) >= datetime('now', ?))".format(
+                ",".join("?" * len(ACTIVE_BOOKING_STATUSES))
+            )
+            params.extend(tuple(ACTIVE_BOOKING_STATUSES))
+            params.append(f"-{cancelled_days} days")
+
+        base_query += " ORDER BY b.id DESC"
+        rows = conn.execute(base_query, params).fetchall()
     finally:
         conn.close()
 
-    return jsonify({"items": [dict(row) for row in rows]})
+    now = datetime.utcnow()
+    items = []
+    for row in rows:
+        data = dict(row)
+        duration_minutes = PENDING_PAYMENT_TIMEOUT_MINUTES
+        started_at = parse_db_datetime(data["created_at"])
+        data["duration_minutes"] = duration_minutes
+        data["expires_at"] = None
+        data["remaining_seconds"] = 0
+
+        if duration_minutes is not None and started_at is not None:
+            expires_at = started_at + timedelta(minutes=duration_minutes)
+            data["expires_at"] = expires_at.strftime("%Y-%m-%d %H:%M:%S")
+            data["remaining_seconds"] = max(0, int((expires_at - now).total_seconds()))
+
+        if data["status"] in ACTIVE_BOOKING_STATUSES:
+            # Active bookings are expected to keep scooter in_use.
+            data["scooter_status_aligned"] = data["scooter_current_status"] == "in_use"
+        else:
+            # Ended bookings should not lock scooter into in_use.
+            data["scooter_status_aligned"] = data["scooter_current_status"] != "in_use"
+        items.append(data)
+
+    return jsonify(
+        {
+            "items": items,
+            "filters": {
+                "include_cancelled": include_cancelled,
+                "cancelled_days": cancelled_days,
+            },
+        }
+    )
 
 
 @app.delete("/api/customer/bookings/<int:booking_id>")
 @require_role("customer")
 def cancel_booking(booking_id: int):
+    """Cancel an owned booking and release scooter availability."""
     conn = get_db()
     cur = conn.cursor()
+    sync_expired_bookings(conn)
 
     booking = cur.execute(
         "SELECT id, user_id, scooter_id, status FROM bookings WHERE id = ?",
@@ -406,10 +623,25 @@ def cancel_booking(booking_id: int):
     if booking["status"] == "CANCELLED":
         conn.close()
         return api_error(409, "BOOKING_ALREADY_CANCELLED", "Booking already cancelled")
+    if booking["status"] not in ACTIVE_BOOKING_STATUSES:
+        conn.close()
+        return api_error(409, "BOOKING_ALREADY_ENDED", "Booking already ended")
 
     try:
         cur.execute("UPDATE bookings SET status = 'CANCELLED' WHERE id = ?", (booking_id,))
-        cur.execute("UPDATE scooters SET status = 'available' WHERE id = ?", (booking["scooter_id"],))
+        # Keep scooter locked if other active bookings exist because of historical/manual inconsistencies.
+        active_count = cur.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM bookings
+            WHERE scooter_id = ?
+              AND id != ?
+              AND status IN ({})
+            """.format(",".join("?" * len(ACTIVE_BOOKING_STATUSES))),
+            (booking["scooter_id"], booking_id, *tuple(ACTIVE_BOOKING_STATUSES)),
+        ).fetchone()["count"]
+        if active_count == 0:
+            cur.execute("UPDATE scooters SET status = 'available' WHERE id = ?", (booking["scooter_id"],))
         conn.commit()
     finally:
         conn.close()
@@ -420,8 +652,10 @@ def cancel_booking(booking_id: int):
 @app.get("/api/admin/scooters")
 @require_role("admin")
 def list_scooters_admin():
+    """List all scooters for admin management view."""
     conn = get_db()
     try:
+        sync_expired_bookings(conn)
         rows = conn.execute(
             "SELECT id, code, status, location_text FROM scooters ORDER BY id"
         ).fetchall()
@@ -434,6 +668,7 @@ def list_scooters_admin():
 @app.patch("/api/admin/scooters/<int:scooter_id>")
 @require_role("admin")
 def update_scooter_admin(scooter_id: int):
+    """Update scooter status and/or location for admin operations."""
     payload = request.get_json(silent=True) or {}
     updates: list[str] = []
     values: list[str] = []
@@ -457,6 +692,27 @@ def update_scooter_admin(scooter_id: int):
 
     conn = get_db()
     cur = conn.cursor()
+    sync_expired_bookings(conn)
+    # Prevent manual availability override when unresolved bookings still exist for this scooter.
+    if "status" in payload and payload["status"] == "available":
+        active_booking = cur.execute(
+            """
+            SELECT 1
+            FROM bookings
+            WHERE scooter_id = ?
+              AND status IN ({})
+            LIMIT 1
+            """.format(",".join("?" * len(ACTIVE_BOOKING_STATUSES))),
+            (scooter_id, *tuple(ACTIVE_BOOKING_STATUSES)),
+        ).fetchone()
+        if active_booking:
+            conn.close()
+            return api_error(
+                409,
+                "ACTIVE_BOOKING_EXISTS",
+                "Cannot set scooter to available while active booking exists",
+            )
+
     cur.execute(f"UPDATE scooters SET {', '.join(updates)} WHERE id = ?", values)
     if cur.rowcount == 0:
         conn.close()
@@ -472,6 +728,7 @@ def update_scooter_admin(scooter_id: int):
 @app.get("/api/admin/revenue/weekly")
 @require_role("admin")
 def weekly_revenue():
+    """Aggregate weekly non-cancelled booking revenue by plan."""
     week_start_raw = request.args.get("week_start", "").strip()
     if week_start_raw:
         try:
@@ -518,7 +775,9 @@ def weekly_revenue():
     )
 
 
+# Initialize schema/data at import time for local runs and tests.
 init_db()
 
 if __name__ == "__main__":
+    # Local development entrypoint.
     app.run(host="127.0.0.1", port=8000, debug=True)

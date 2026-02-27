@@ -73,6 +73,7 @@
 </div>
 
 <script>
+  // Map scooter status to style classes.
   function statusClass(status) {
     const value = String(status || "").toLowerCase();
     if (value === "available") return "status-available";
@@ -81,6 +82,7 @@
     return "status-cancelled";
   }
 
+  // Render scooter table rows and inline edit controls.
   function renderScooters(items) {
     const tbody = document.querySelector("#scootersTable tbody");
     const empty = document.getElementById("scootersEmpty");
@@ -116,6 +118,7 @@
     });
   }
 
+  // Render weekly revenue summary and by-plan table.
   function renderRevenue(data) {
     document.getElementById("totalRevenueValue").textContent = formatMoney(data.total_revenue || 0);
     document.getElementById("weekRangeValue").textContent = `${data.week_start || "-"} ~ ${data.week_end || "-"}`;
@@ -141,11 +144,13 @@
     });
   }
 
+  // Fetch scooter inventory for admin view.
   async function loadScooters() {
     const data = await apiRequest("/api/admin/scooters");
     renderScooters(data.items || []);
   }
 
+  // Persist scooter status/location update and reload list.
   async function updateScooter(id) {
     const statusEl = document.querySelector(`.status-select[data-id="${id}"]`);
     const locationEl = document.querySelector(`.location-input[data-id="${id}"]`);
@@ -161,6 +166,7 @@
     await loadScooters();
   }
 
+  // Fetch weekly revenue by selected week.
   async function loadRevenue() {
     const weekStart = document.getElementById("weekStartInput").value;
     const query = weekStart ? `?week_start=${encodeURIComponent(weekStart)}` : "";
@@ -168,6 +174,7 @@
     renderRevenue(data);
   }
 
+  // Shared error boundary for all admin async actions.
   async function runWithUiError(action) {
     try {
       await action();
@@ -186,9 +193,12 @@
     runWithUiError(() => updateScooter(id));
   });
 
-  runWithUiError(async () => {
-    await loadScooters();
-    await loadRevenue();
+  // Auto-load admin data on page entry.
+  document.addEventListener("DOMContentLoaded", () => {
+    runWithUiError(async () => {
+      await loadScooters();
+      await loadRevenue();
+    });
   });
 </script>
 {% endblock %}

@@ -1,12 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Home - Hire e-scooters{% endblock %}
 {% block content %}
+<!-- Landing summary card. -->
 <div class="card-shell p-4 p-md-5 mb-3">
   <h1 class="mb-3">Hire e-scooters MVP</h1>
   <p class="text-secondary mb-0">The homepage is split into customer and admin entries, with integrated auth, booking, and management APIs.</p>
 </div>
 
 {% if not current_user %}
+  <!-- Public entry cards for anonymous visitors. -->
   <div class="row g-3 mb-3">
     <div class="col-12 col-lg-6">
       <div class="card-shell p-4 h-100">
@@ -28,12 +30,14 @@
     </div>
   </div>
 {% elif current_user["role"] == "admin" %}
+  <!-- Role-specific quick entry for authenticated admin users. -->
   <div class="card-shell p-4 mb-3">
     <h2 class="h5">Admin Side</h2>
     <p class="text-secondary">You are signed in as admin. Manage scooter status and review weekly revenue.</p>
     <a class="btn btn-dark" href="/admin">Go to Admin Page</a>
   </div>
 {% else %}
+  <!-- Role-specific quick entry for authenticated customer users. -->
   <div class="card-shell p-4 mb-3">
     <h2 class="h5">Customer Side</h2>
     <p class="text-secondary">You are signed in as customer. Continue with pricing, booking, and order management.</p>
@@ -41,12 +45,14 @@
   </div>
 {% endif %}
 
+<!-- Basic health check widget for demo verification. -->
 <div class="card-shell p-4">
   <button id="healthBtn" class="btn btn-outline-secondary">Check Service Health</button>
   <div id="healthBox" class="alert alert-light border mt-3 mb-0">Click to call <code>/api/health</code>.</div>
 </div>
 
 <script>
+  // Query health endpoint and show human-readable status.
   document.getElementById("healthBtn").addEventListener("click", async () => {
     const box = document.getElementById("healthBox");
     box.className = "alert alert-info mt-3 mb-0";

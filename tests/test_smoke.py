@@ -1,17 +1,23 @@
+"""End-to-end smoke test that covers auth, customer flow, and admin flow."""
+
 from app import app, init_db
 
 
 def test_smoke_full_flow() -> None:
+    """Exercise core API loop: health -> login -> booking -> admin checks."""
     app.config["TESTING"] = True
     init_db()
     client = app.test_client()
 
+    # Health check should always be accessible.
     health = client.get("/api/health")
     assert health.status_code == 200
 
+    # Protected customer endpoint requires authentication.
     unauthorized = client.get("/api/customer/pricing")
     assert unauthorized.status_code == 401
 
+    # Customer login and customer-only endpoint access.
     customer_login = client.post(
         "/api/auth/login",
         json={"email": "demo_user@example.com", "password": "123456"},
@@ -21,9 +27,13 @@ def test_smoke_full_flow() -> None:
     pricing = client.get("/api/customer/pricing")
     assert pricing.status_code == 200
 
+    scooters_for_customer = client.get("/api/customer/scooters")
+    assert scooters_for_customer.status_code == 200
+
     admin_forbidden = client.get("/api/admin/scooters")
     assert admin_forbidden.status_code == 403
 
+    # Pick an available scooter for booking creation.
     from app import DB_PATH
     import sqlite3
 
@@ -46,6 +56,7 @@ def test_smoke_full_flow() -> None:
     booking_cancel = client.delete(f"/api/customer/bookings/{booking_id}")
     assert booking_cancel.status_code == 200
 
+    # Switch identity to admin and verify admin endpoints.
     client.post("/api/auth/logout")
 
     admin_login = client.post(

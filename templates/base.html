@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
   </head>
   <body>
+    <!-- Global top navigation. Visible actions depend on authentication state/role. -->
     <nav class="navbar navbar-expand-lg bg-white border-bottom sticky-top">
       <div class="container">
         <a class="navbar-brand fw-semibold" href="/">Hire e-scooters</a>
@@ -28,9 +29,12 @@
       </div>
     </nav>
     <main class="container py-4">{% block content %}{% endblock %}</main>
+    <!-- Toast host used by shared frontend notification helpers. -->
     <div id="toastContainer" class="toast-container-custom"></div>
+    <!-- Shared API wrapper and toast helpers. -->
     <script src="{{ url_for('static', filename='app.js') }}"></script>
     <script>
+      // Handle navbar logout action from any page.
       const navLogoutBtn = document.getElementById("navLogoutBtn");
       if (navLogoutBtn) {
         navLogoutBtn.addEventListener("click", async () => {

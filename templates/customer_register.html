@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Register{% endblock %}
 {% block content %}
+<!-- Centered registration form with inline success/error alerts. -->
 <div class="row justify-content-center">
   <div class="col-12 col-md-8 col-lg-5">
     <div class="card-shell p-4 p-md-5">
@@ -31,6 +32,7 @@
 </div>
 
 <script>
+  // Submit registration form and redirect to login on success.
   async function doRegister() {
     const errorBox = document.getElementById("registerError");
     const successBox = document.getElementById("registerSuccess");
@@ -58,6 +60,7 @@
     }
   }
 
+  // Bind button and Enter key submission handlers.
   document.getElementById("registerBtn").addEventListener("click", doRegister);
   document.getElementById("regPassword").addEventListener("keydown", (event) => {
     if (event.key === "Enter") doRegister();

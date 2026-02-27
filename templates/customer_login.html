@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Login{% endblock %}
 {% block content %}
+<!-- Centered login form with inline error feedback. -->
 <div class="row justify-content-center">
   <div class="col-12 col-md-8 col-lg-5">
     <div class="card-shell p-4 p-md-5">
@@ -28,6 +29,7 @@
 </div>
 
 <script>
+  // Submit login form and redirect by role on success.
   async function doLogin() {
     const errorBox = document.getElementById("loginError");
     errorBox.classList.add("d-none");
@@ -53,6 +55,7 @@
     }
   }
 
+  // Bind button and Enter key submission handlers.
   document.getElementById("loginBtn").addEventListener("click", doLogin);
   document.getElementById("loginPassword").addEventListener("keydown", (event) => {
     if (event.key === "Enter") doLogin();
